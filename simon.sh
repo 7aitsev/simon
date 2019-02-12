@@ -26,10 +26,10 @@ askOverwrite() {
 # fetch link(s) from diff and download pic(s)
 fetchNDownload() {
     _links=$(echo "$1" | grep -E "^>" | cut -d '"' -f 2 | grep ".jpg" | sort -u)
-    if [[ -n $_links ]]
+    if [ -n "$_links" ]
         then
             # show a list of fetched link(s)
-            echo -e "\nFetched links:\n$_links\n"
+            printf '\nFetched links:\n%s\n' "$_links"
             for link in $_links; do
                 _fname=$(echo $link | cut -d '/' -f 2)
                 # ask if user wishes to save file by the fetched link
@@ -55,8 +55,8 @@ fetchNDownload() {
 
 # is there something new?
 findDiffs() {
-    _diffs=$(diff $SNAPSHOT_OLD <(echo -n "$SNAPSHOT_NEW"))
-    if [[ -n $_diffs ]]
+    _diffs=$(printf '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
+    if [ -n "$_diffs" ]
         then
             fetchNDownload "$_diffs"
         else
@@ -65,7 +65,7 @@ findDiffs() {
 }
 
 # is there simon.old file?
-if [[ -f $SNAPSHOT_OLD ]]
+if [ -f "$SNAPSHOT_OLD" ]
     then
         echo "Snapshot \"$SNAPSHOT_OLD\" found"
         findDiffs
