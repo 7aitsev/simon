@@ -1,13 +1,20 @@
 #!/bin/bash
 
+# Usage:
+#
+# 1. place the script in a directory, i.e. "./simon/simon.sh"
+# 2. cd to the folder
+# 3. run the script (if it is the first run, then you'll be prompted just to create a snapshot of the site
+#     - file called "simon.old") and follow the prompts.
+
 SNAPSHOT_OLD="simon.old"
 BASE="http://simonstalenhag.se/"
-SNAPSHOT_NEW=$(curl -s $BASE | sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//')
+SNAPSHOT_NEW=$(curl -ks $BASE | sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# do overwrite the old snapshot?
+# overwrite the old snapshot?
 askOverwrite() {
     while true ; do
-        read -p "Overwrite the old snapshot? " yn
+        read -p "Overwrite the old snapshot (y/n)? " yn
         case $yn in
             [Yy]* ) echo -n "$SNAPSHOT_NEW" >$SNAPSHOT_OLD; break;;
             [Nn]* ) break;;
