@@ -9,14 +9,13 @@
 
 SNAPSHOT_OLD='simon.old'
 BASE='http://simonstalenhag.se/'
-#SNAPSHOT_NEW=$(curl -ks "$BASE" | sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//')
-SNAPSHOT_NEW=$(sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//' <"simon.new")
+SNAPSHOT_NEW=$(curl -ks "$BASE" | sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//')
 
 # overwrite the old snapshot?
-askOverwrite() {
+ask_overwrite() {
     printf '\n'
     while true ; do
-        read -p 'Overwrite the old snapshot (y/n)? ' yn
+        read -rp 'Overwrite the old snapshot (y/n)? ' yn
         case "$yn" in
             [Yy]* )
                 printf '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
@@ -32,19 +31,21 @@ askOverwrite() {
 }
 
 # fetch link(s) from diff and download pic(s)
-fetchNDownload() {
+fetch_and_download() {
+    local _links
     _links=$(printf '%s' "$1" \
         | grep -E '^>' | cut -d '"' -f 2 | grep -i '.jpe\?g' | sort -u)
     printf '\n'
     if [ -n "$_links" ]
         then
+            local _fname
             # show a list of fetched link(s)
             printf 'Fetched links:\n%s\n\n' "$_links"
             for link in $_links; do
                 _fname=$(printf '%s\n' "$link" | cut -d '/' -f 2)
                 # ask if a user wishes to save the file from the fetched link
                 while true; do
-                    read -p "Save \"$_fname\" (y/n)? " yn
+                    read -rp "Save \"$_fname\" (y/n)? " yn
                     case "$yn" in
                         [Yy]* )
                             wget -nv "$BASE$link";
@@ -67,17 +68,18 @@ fetchNDownload() {
             printf '%s\n' "$1"
             printf -- '-----END DIFF BLOCK-----\n'
     fi
-    askOverwrite
+    ask_overwrite
 }
 
 # is there something new?
-findDiffs() {
+find_diffs() {
+    local _diffs
     _diffs=$(printf '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     printf '\n'
     if [ -n "$_diffs" ]
         then
             printf 'Snapshots are different\n'
-            fetchNDownload "$_diffs"
+            fetch_and_download "$_diffs"
         else
             printf 'Snapshots are the same\n'
     fi
@@ -87,7 +89,7 @@ findDiffs() {
 if [ -f "$SNAPSHOT_OLD" ]
     then
         printf 'Snapshot "%s" found\n' "$SNAPSHOT_OLD"
-        findDiffs
+        find_diffs
     else
         printf 'Snapshot "%s" not found\n' "$SNAPSHOT_OLD"
         printf '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
