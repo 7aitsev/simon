@@ -1,18 +1,69 @@
 #!/bin/bash
 
+###############################################################################
 # Usage:
 #
 # 1. Place the script in a dedicated directory, e.g., "./simon/simon.sh".
 # 2. cd to the folder.
 # 3. Run the script and follow the prompts. If it's the first run, then
 #    you'll be informed that a snapshot named "simon.old" has been created.
+###############################################################################
 
+###############################################################################
+# Global vals and vars
+###############################################################################
 SNAPSHOT_OLD='simon.old'
 SITE='http://simonstalenhag.se/'
-SITE_FILTER='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
-SNAPSHOT_NEW=$(curl -ks "$SITE" | sed -e "$SITE_FILTER")
+SNAPSHOT_NEW=''
+SED=''
+COURIER=''
 
-# overwrite the old snapshot?
+###############################################################################
+# Check dependencies (use absolute paths for each of them)
+###############################################################################
+check_deps() {
+    SED="$(command -v sed)"
+    if [ 1 -eq $? ] ; then
+        printf 'The script requires sed\n'
+        exit 1
+    fi
+    for courier in "wget" "curl" ; do
+        COURIER="$(command -v "$courier")"
+        if [ 0 -eq $? ] ; then
+            return
+        fi
+    done
+    printf 'The script requires wget or curl\n'
+    exit 1
+}
+
+###############################################################################
+# Download the index.html page from the site
+###############################################################################
+download_page()
+{
+    local _site_filter
+    _site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
+    #SNAPSHOT_NEW=$("$SED" -e "$_site_filter" <"simon.new")
+    #return 0
+    case "$COURIER" in
+        *wget )
+            SNAPSHOT_NEW=$("$COURIER" -q -O /dev/stdout "$SITE" \
+                | sed -e "$_site_filter")
+            ;;
+        *curl )
+            SNAPSHOT_NEW=$("$COURIER" -s "$SITE" \
+                | sed -e "$_site_filter")
+            ;;
+        * )
+            printf 'Unknown courier\n' 1>&2
+            exit 1
+    esac
+}
+
+###############################################################################
+# Rewrite the old snapshot?
+###############################################################################
 ask_overwrite() {
     printf '\n'
     while true ; do
@@ -20,10 +71,10 @@ ask_overwrite() {
         case "$yn" in
             [Yy]* )
                 printf '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-                printf 'Snapshot overwritten'
+                printf 'Snapshot overwritten\n'
                 break;;
             [Nn]* )
-                printf 'Snapshot untouched';
+                printf 'Snapshot untouched\n';
                 break;;
             * )
                 printf 'Please answer yes or no\n';;
@@ -31,11 +82,14 @@ ask_overwrite() {
     done
 }
 
-# fetch link(s) from diff and download pic(s)
+###############################################################################
+# Fetch link(s) from diff and download pic(s)
+###############################################################################
 fetch_and_download() {
     local _links
     _links=$(printf '%s' "$1" \
-        | grep -E '^>' | cut -d '"' -f 2 | grep -i '.jpe\?g' | sort -u)
+        | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
+        | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
     printf '\n'
     if [ -n "$_links" ]
         then
@@ -49,10 +103,11 @@ fetch_and_download() {
                     read -rp "Save \"$_fname\" (y/n)? " yn
                     case "$yn" in
                         [Yy]* )
-                            wget -nv "$SITE$link";
+                            # TODO: write a function to download a file
+                            "$COURIER" -nv "$SITE$link";
                             break;;
                         [Nn]* )
-                            #printf 'Skipping...'
+                            #printf 'Skipping...\n'
                             break;;
                         * )
                             printf 'Please answer yes or no\n';;
@@ -68,7 +123,9 @@ fetch_and_download() {
     ask_overwrite
 }
 
-# is there something new?
+###############################################################################
+# Is there something new?
+###############################################################################
 find_diffs() {
     local _diffs
     _diffs=$(printf '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
@@ -82,7 +139,15 @@ find_diffs() {
     fi
 }
 
-# is there simon.old file?
+###############################################################################
+# Entry point
+###############################################################################
+
+check_deps
+
+download_page
+
+# Is there simon.old file?
 if [ -f "$SNAPSHOT_OLD" ]
     then
         printf 'Snapshot "%s" found\n' "$SNAPSHOT_OLD"
