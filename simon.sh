@@ -2,14 +2,15 @@
 
 # Usage:
 #
-# 1. place the script in a directory, i.e. "./simon/simon.sh"
-# 2. cd to the folder
-# 3. run the script (if it is the first run, then you'll be prompted just to create a snapshot of the site
-#     - file called "simon.old") and follow the prompts.
+# 1. Place the script in a dedicated directory, e.g., "./simon/simon.sh".
+# 2. cd to the folder.
+# 3. Run the script and follow the prompts. If it's the first run, then
+#    you'll be informed that a snapshot named "simon.old" has been created.
 
 SNAPSHOT_OLD='simon.old'
-BASE='http://simonstalenhag.se/'
-SNAPSHOT_NEW=$(curl -ks "$BASE" | sed -e 's/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//')
+SITE='http://simonstalenhag.se/'
+SITE_FILTER='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
+SNAPSHOT_NEW=$(curl -ks "$SITE" | sed -e "$SITE_FILTER")
 
 # overwrite the old snapshot?
 ask_overwrite() {
@@ -48,12 +49,8 @@ fetch_and_download() {
                     read -rp "Save \"$_fname\" (y/n)? " yn
                     case "$yn" in
                         [Yy]* )
-                            wget -nv "$BASE$link";
+                            wget -nv "$SITE$link";
                             break;;
-# -P prefix
-# --directory-prefix=prefix
-#   Set directory prefix to prefix.  The directory prefix is the directory where all other files and subdirectories will be
-#   saved to, i.e. the top of the retrieval tree.  The default is . (the current directory).
                         [Nn]* )
                             #printf 'Skipping...'
                             break;;
