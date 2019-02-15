@@ -16,7 +16,7 @@ SNAPSHOT_OLD='simon.old'
 SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
 SED=''
-COURIER=''
+DOWNLOADER=''
 
 ###############################################################################
 # Check dependencies (use absolute paths for each of them)
@@ -27,10 +27,11 @@ check_deps() {
         printf 'The script requires sed\n'
         exit 1
     fi
-    for courier in "wget" "curl" ; do
-        COURIER="$(command -v "$courier")"
+    local dlder
+    for dlder in "wget" "curl" ; do
+        DOWNLOADER="$(command -v "$dlder")"
         if [ 0 -eq $? ] ; then
-            return
+            return 0
         fi
     done
     printf 'The script requires wget or curl\n'
@@ -46,23 +47,55 @@ download_page()
     _site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
     #SNAPSHOT_NEW=$("$SED" -e "$_site_filter" <"simon.new")
     #return 0
-    case "$COURIER" in
+    case "$DOWNLOADER" in
         *wget )
-            SNAPSHOT_NEW=$("$COURIER" -q -O /dev/stdout "$SITE" \
+            SNAPSHOT_NEW=$("$DOWNLOADER" -nv --show-progress -O - -- "$SITE" \
                 | sed -e "$_site_filter")
             ;;
         *curl )
-            SNAPSHOT_NEW=$("$COURIER" -s "$SITE" \
+            SNAPSHOT_NEW=$("$DOWNLOADER" -f --progress -- "$SITE" \
                 | sed -e "$_site_filter")
             ;;
         * )
-            printf 'Unknown courier\n' 1>&2
+            printf -- 'Unknown downloader: "%s"\n' "$DOWNLOADER" 1>&2
             exit 1
     esac
 }
 
 ###############################################################################
-# Rewrite the old snapshot?
+# Save a file
+#
+# $1 - an URL of the file
+# $2 - a path to store the file
+###############################################################################
+file_downloader()
+{
+    if [ 2 -ne $# ] ; then
+        printf '@file_downloader: missing arguments\n' 1>&2
+        return 1
+    fi
+    local rc
+    case "$DOWNLOADER" in
+        *wget )
+            "$DOWNLOADER" -O "$2" -nv --show-progress -- "$1"
+            rc=$?
+            ;;
+        *curl )
+            "$DOWNLOADER" -o "$2" -f --progress-bar -- "$1"
+            rc=$?
+            ;;
+        * )
+            printf -- 'Unknown downloader: "%s"\n' "$DOWNLOADER" 1>&2
+            exit 1
+    esac
+    # clean up in case of downloading failure
+    if [ 0 -ne $rc ] ; then
+        rm "$2"
+    fi
+}
+
+###############################################################################
+# Ask if a user wishes to overwrite the old snapshot with a new one
 ###############################################################################
 ask_overwrite() {
     printf '\n'
@@ -84,26 +117,28 @@ ask_overwrite() {
 
 ###############################################################################
 # Fetch link(s) from diff and download pic(s)
+#
+# $1 - the diff between an old and a new snapshot
 ###############################################################################
 fetch_and_download() {
-    local _links
-    _links=$(printf -- '%s' "$1" \
+    local links
+    links=$(printf -- '%s' "$1" \
         | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
         | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
     printf '\n'
-    if [ -n "$_links" ] ; then
-        local _fname
-        # show a list of fetched link(s)
-        printf -- 'Fetched links:\n%s\n\n' "$_links"
-        for link in $_links; do
-            _fname=$(printf -- '%s\n' "$link" | cut -d '/' -f 2)
+    if [ -n "$links" ] ; then
+        local fname
+        local link
+        # show a list of fetched link(s) and loop through them
+        printf -- 'Fetched links:\n%s\n\n' "$links"
+        for link in $links; do
+            fname=$(printf -- '%s' "$link" | cut -d '/' -f 2)
             # ask if a user wishes to save the file from the fetched link
             while true; do
-                read -rp "Save \"$_fname\" (y/n)? " yn
+                read -rp "Save \"$fname\" (y/n)? " yn
                 case "$yn" in
                     [Yy]* )
-                        # TODO: write a function to download a file
-                        "$COURIER" -nv "$SITE$link";
+                        file_downloader "${SITE}${link}" "./$fname"
                         break;;
                     [Nn]* )
                         #printf 'Skipping...\n'
