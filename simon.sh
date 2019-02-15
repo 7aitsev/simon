@@ -23,7 +23,7 @@ COURIER=''
 ###############################################################################
 check_deps() {
     SED="$(command -v sed)"
-    if [ 1 -eq $? ] ; then
+    if [ 0 -ne $? ] ; then
         printf 'The script requires sed\n'
         exit 1
     fi
@@ -70,7 +70,7 @@ ask_overwrite() {
         read -rp 'Overwrite the old snapshot (y/n)? ' yn
         case "$yn" in
             [Yy]* )
-                printf '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
+                printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
                 printf 'Snapshot overwritten\n'
                 break;;
             [Nn]* )
@@ -87,38 +87,37 @@ ask_overwrite() {
 ###############################################################################
 fetch_and_download() {
     local _links
-    _links=$(printf '%s' "$1" \
+    _links=$(printf -- '%s' "$1" \
         | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
         | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
     printf '\n'
-    if [ -n "$_links" ]
-        then
-            local _fname
-            # show a list of fetched link(s)
-            printf 'Fetched links:\n%s\n\n' "$_links"
-            for link in $_links; do
-                _fname=$(printf '%s\n' "$link" | cut -d '/' -f 2)
-                # ask if a user wishes to save the file from the fetched link
-                while true; do
-                    read -rp "Save \"$_fname\" (y/n)? " yn
-                    case "$yn" in
-                        [Yy]* )
-                            # TODO: write a function to download a file
-                            "$COURIER" -nv "$SITE$link";
-                            break;;
-                        [Nn]* )
-                            #printf 'Skipping...\n'
-                            break;;
-                        * )
-                            printf 'Please answer yes or no\n';;
-                    esac
-                done
+    if [ -n "$_links" ] ; then
+        local _fname
+        # show a list of fetched link(s)
+        printf -- 'Fetched links:\n%s\n\n' "$_links"
+        for link in $_links; do
+            _fname=$(printf -- '%s\n' "$link" | cut -d '/' -f 2)
+            # ask if a user wishes to save the file from the fetched link
+            while true; do
+                read -rp "Save \"$_fname\" (y/n)? " yn
+                case "$yn" in
+                    [Yy]* )
+                        # TODO: write a function to download a file
+                        "$COURIER" -nv "$SITE$link";
+                        break;;
+                    [Nn]* )
+                        #printf 'Skipping...\n'
+                        break;;
+                    * )
+                        printf 'Please answer yes or no\n';;
+                esac
             done
-        else
-            printf 'No links fetched...\n\n'
-            printf -- '-----BEGIN DIFF BLOCK-----\n'
-            printf '%s\n' "$1"
-            printf -- '-----END DIFF BLOCK-----\n'
+        done
+    else
+        printf 'No links fetched...\n\n'
+        printf -- '-----BEGIN DIFF BLOCK-----\n'
+        printf -- '%s\n' "$1"
+        printf -- '-----END DIFF BLOCK-----\n'
     fi
     ask_overwrite
 }
@@ -128,7 +127,7 @@ fetch_and_download() {
 ###############################################################################
 find_diffs() {
     local _diffs
-    _diffs=$(printf '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
+    _diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     printf '\n'
     if [ -n "$_diffs" ]
         then
@@ -150,10 +149,10 @@ download_page
 # Is there simon.old file?
 if [ -f "$SNAPSHOT_OLD" ]
     then
-        printf 'Snapshot "%s" found\n' "$SNAPSHOT_OLD"
+        printf -- 'Snapshot "%s" found\n' "$SNAPSHOT_OLD"
         find_diffs
     else
-        printf 'Snapshot "%s" not found\n' "$SNAPSHOT_OLD"
-        printf '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-        printf 'Snapshot of the site saved as "%s"\n' "$SNAPSHOT_OLD"
+        printf -- 'Snapshot "%s" not found\n' "$SNAPSHOT_OLD"
+        printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
+        printf -- 'Snapshot of the site saved as "%s"\n' "$SNAPSHOT_OLD"
 fi
