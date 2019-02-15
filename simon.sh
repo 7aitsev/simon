@@ -43,18 +43,18 @@ check_deps() {
 ###############################################################################
 download_page()
 {
-    local _site_filter
-    _site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
-    #SNAPSHOT_NEW=$("$SED" -e "$_site_filter" <"simon.new")
+    local site_filter
+    site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
+    #SNAPSHOT_NEW=$("$SED" -e "$site_filter" <"simon.new")
     #return 0
     case "$DOWNLOADER" in
         *wget )
             SNAPSHOT_NEW=$("$DOWNLOADER" -nv --show-progress -O - -- "$SITE" \
-                | sed -e "$_site_filter")
+                | sed -e "$site_filter")
             ;;
         *curl )
             SNAPSHOT_NEW=$("$DOWNLOADER" -f --progress -- "$SITE" \
-                | sed -e "$_site_filter")
+                | sed -e "$site_filter")
             ;;
         * )
             printf -- 'Unknown downloader: "%s"\n' "$DOWNLOADER" 1>&2
@@ -161,13 +161,13 @@ fetch_and_download() {
 # Is there something new?
 ###############################################################################
 find_diffs() {
-    local _diffs
-    _diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
+    local diffs
+    diffs=$(printf -- '%s\n' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     printf '\n'
-    if [ -n "$_diffs" ]
+    if [ -n "$diffs" ]
         then
             printf 'Snapshots are different\n'
-            fetch_and_download "$_diffs"
+            fetch_and_download "$diffs"
         else
             printf 'Snapshots are the same\n'
     fi
