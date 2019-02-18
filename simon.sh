@@ -17,24 +17,65 @@ SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
 SED=''
 DOWNLOADER=''
+RST=$(tput sgr0)
+R=$(tput setaf 1)
+G=$(tput setaf 2)
+B=$(tput setaf 3)
+BLD=$(tput bold)
+UP=$(tput cuu1)
+
+###############################################################################
+# Helper function for pretty-printing
+###############################################################################
+set_status() {
+    printf -- '[%b    ] %s' "$(tput sc)" "$1"
+}
+
+upd_status() {
+    tput rc
+    printf -- '%b%b\n' "$1" "$RST"
+}
+
+indent() {
+    if [ -z "$1" ]; then
+        printf '       '
+    else
+        printf '%*s' $((7+"$1")) ""
+    fi
+}
+
+ok_status() {
+    upd_status "$1 $BLD${G}OK"
+    printf "%b" "$2"
+}
+
+err_status() {
+    upd_status "$1$BLD${R}ERR!"
+    indent ""
+}
 
 ###############################################################################
 # Check dependencies (use absolute paths for each of them)
 ###############################################################################
 check_deps() {
+    set_status 'Checking dependencies...'
     SED="$(command -v sed)"
     if [ 0 -ne $? ] ; then
-        printf 'The script requires sed\n'
+        err_status
+        printf '%bThe script requires %bsed%b\n' "$R" "$BLD" "$RST" 1>&2
         exit 1
     fi
     local dlder
-    for dlder in "wget" "curl" ; do
+    for dlder in "wgett" "curl" ; do
         DOWNLOADER="$(command -v "$dlder")"
         if [ 0 -eq $? ] ; then
+            ok_status
             return 0
         fi
     done
-    printf 'The script requires wget or curl\n'
+    err_status
+    printf '%bThe script requires %bwget%b or %bcurl%b\n' \
+        "$R" "$BLD" "$RST$R" "$BLD" "$RST" 1>&2
     exit 1
 }
 
@@ -43,23 +84,42 @@ check_deps() {
 ###############################################################################
 download_page()
 {
-    local site_filter
+    local site_filter snapshot rc
     site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
-    #SNAPSHOT_NEW=$("$SED" -e "$site_filter" <"simon.new")
-    #return 0
+    set_status 'Reaching the site...'
+#SNAPSHOT_NEW=$("$SED" -e "$site_filter" <"simon.new")
+#ok_status
+#return 0
+    printf '\n%s' "$B"
     case "$DOWNLOADER" in
         *wget )
-            SNAPSHOT_NEW=$("$DOWNLOADER" -nv --show-progress -O - -- "$SITE" \
-                | sed -e "$site_filter")
+            snapshot=$("$DOWNLOADER" -q --show-progress -O - -- "http://speedtest-sfo1.digitalocean.com/test_checksums.txt")
+            rc=$?
+#            SNAPSHOT_NEW=$("$DOWNLOADER" -nv --show-progress -O - -- "$SITE" \
+#                | sed -e "$site_filter")
             ;;
         *curl )
-            SNAPSHOT_NEW=$("$DOWNLOADER" -f --progress -- "$SITE" \
-                | sed -e "$site_filter")
+            snapshot=$("$DOWNLOADER" -f --progress -- "http://speedtest-sfo1.digitalocean.com/test_checksums.txt" >/dev/null)
+            rc=$?
+#            SNAPSHOT_NEW=$("$DOWNLOADER" -f --progress -- "$SITE" \
+#                | sed -e "$site_filter")
             ;;
         * )
-            printf -- 'Unknown downloader: "%s"\n' "$DOWNLOADER" 1>&2
+            err_status
+            printf -- '%bUnknown downloader: "%s"\n%b' \
+               "$R" "$DOWNLOADER" "$RST" 1>&2
             exit 1
     esac
+
+    if [ 0 -ne "$rc" ]; then
+        err_status "$UP"
+        printf '%bUnexpected error: %b%s%b returns code %b%s%b\n' \
+            "$R" "$BLD" "$DOWNLOADER" "$RST$R" "$BLD" "$rc" "$RST" 1>&2
+        exit 1
+    fi
+
+    ok_status "$UP$UP" '\n'
+    exit 0
 }
 
 ###############################################################################
