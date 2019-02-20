@@ -17,74 +17,163 @@ SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
 SED=''
 DOWNLOADER=''
-WGET_OPTS='-q --show-progress --progress=bar:force:noscroll'
-CURL_OPTS='-f --progress-bar'
+WGET_OPTS='-q'
+CURL_OPTS='-s'
 RST=$(tput sgr0)
 R=$(tput setaf 1)
 G=$(tput setaf 2)
-B=$(tput setaf 4)
 Y=$(tput setaf 3)
 BLD=$(tput bold)
+VBUF=''
+STATUS_LAST_MSG=''
+LAST_TASK=''
+TMP=''
 
 ###############################################################################
 # Helper function for pretty-printing
 ###############################################################################
-set_status() {
-    printf -- '[%b    ] %s...' "$(tput sc)" "$1"
-}
+redraw() {
+    local slc lc
+    slc="$(tput lines)"
+    lc="$(printf -- '%s' "$VBUF" | wc -l)"
 
-upd_status() {
-    tput rc
-    printf -- '%b%b\n' "$1" "$RST"
-}
-
-indent() {
-    if [ -z "$1" ]; then
-        printf '       '
+    tput -S << "END"
+clear
+cup 0 0
+END
+    if [ "$slc" -gt "$lc" ]; then
+        printf -- '%s\n' "$VBUF"
     else
-        printf '%*s' $((7+"$1")) ''
+        printf -- '%s\n' "$(printf -- '%s' "$VBUF" | tail -"$lc")"
     fi
 }
 
-ok_status() {
-    upd_status " $BLD${G}OK"
-    printf '%b' "$1"
+trap redraw WINCH
+
+#infloop() {
+#    while true; do
+#      sleep 0.1
+#    done
+#}
+#
+#trap infloop EXIT
+
+vbuf_append() {
+    VBUF="$VBUF$(printf -- '%b' "$1")"
 }
 
-err_status() {
-    upd_status "$BLD${R}ERR!"
-    indent ""
+vbuf_replace_last() {
+    VBUF="$(printf -- '%b' "$VBUF" | sed -e '$ s|^.*|'"$1"'|g')"
+}
+
+lt_init() {
+    LAST_TASK="$(printf -- '%b' "$1")"
+}
+
+lt_append() {
+    LAST_TASK="$LAST_TASK$(printf -- '%b' "$1")"
+}
+
+##
+# Formats a line with a status and a given message and appends
+# the line to VBUF, and to LAST_TASK.
+#
+# $1 - a message
+# $2 - defines the status: usually it's an empty placeholder, so if the
+#      parameter is empty, then the placeholder is filled with four spaces
+set_status() {
+    local status msg
+    [ -z "$2" ] && status='    ' || status="$2"
+    msg="$(printf -- '[%b] %b' "$status" "$1")"
+    # do not prepend leading '\n' for summary status
+    lt_init "$msg"
+    # if this isn't the first status line - prepend '\n'
+    [ -n "$STATUS_LAST_MSG" ] && msg="\\n""$msg"
+    STATUS_LAST_MSG="$(printf -- '%b' "$1")"
+
+    vbuf_append "$msg"
+    redraw
+}
+
+##
+# Updates the status in a line which is obtained from a VBUF, and LAST_TASK
+#
+# $1 (required) - a type: one of OK, ERR!, WARN, INFO, or a custom type.
+# $2 (optional) - a string which can be appened to a message (can be empty).
+upd_status() {
+    if [ -z "$1" ]; then
+        put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided${RST}"
+        exit 1
+    fi
+    [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
+    local msg st
+    case "$1" in
+        OK )
+            st=" $BLD${G}OK$RST "
+            ;;
+        ERR\! )
+            st="$BLD${R}ERR!$RST"
+            ;;
+        WARN )
+            st="$BLD${Y}WARN$RST"
+            ;;
+        INFO )
+            st="${BLD}INFO$RST"
+            ;;
+        * )
+            st="$1"
+    esac
+    msg="$(printf -- '[%b] %b' "$st" "$STATUS_LAST_MSG")"
+
+    vbuf_replace_last "$msg"
+    lt_init "$msg"
+    redraw
+}
+
+put_descr() {
+    local descr
+    descr="$(printf -- '\n       %s' "$1")"
+
+    vbuf_append "$descr"
+    lt_append "$descr"
+    redraw
+}
+
+put_after_status() {
+    local xoffset
+    xoffset="$(printf -- '%b' "$LAST_TASK" \
+        | tr -d "$Y$RST" | wc -m)"
+    xoffset=$((xoffset+2))
+    tput cuu1
+    tput cuf "$xoffset"
 }
 
 print_diff() {
-    printf '\n%b-----BEGIN DIFF BLOCK-----%b\n' "$Y" "$RST"
-    printf -- '%b\n' "$(printf -- '%s\n' "$SNAPSHOT_NEW" \
-        | diff -u --color=always "$SNAPSHOT_OLD" -)"
-    printf '%b-----END DIFF BLOCK-----%b\n' "$Y" "$RST"
+    printf -- '%s\n' "$SNAPSHOT_NEW" \
+       | diff -u --color=always "$SNAPSHOT_OLD" - | less
 }
 
 ###############################################################################
 # Check dependencies (use absolute paths for each of them)
 ###############################################################################
 check_deps() {
-    set_status 'Checking dependencies'
+    set_status 'Checking dependencies...'
     SED="$(command -v sed)"
     if [ 0 -ne $? ] ; then
-        err_status
-        printf '%bThe script requires %bsed%b\n' "$R" "$BLD" "$RST" 1>&2
+        upd_status 'ERR!'
+        put_descr "${R}The script requires ${BLD}sed$RST"
         exit 1
     fi
     local dlder
-    for dlder in "wwget" "curl" ; do
+    for dlder in "wget" "curl" ; do
         DOWNLOADER="$(command -v "$dlder")"
         if [ 0 -eq $? ] ; then
-            ok_status
+            upd_status 'OK'
             return 0
         fi
     done
-    err_status
-    printf '%bThe script requires %bwget%b or %bcurl%b\n' \
-        "$R" "$BLD" "$RST$R" "$BLD" "$RST" 1>&2
+    upd_status 'ERR!'
+    put_descr "${R}The script requires ${BLD}wget$RST$R or ${BLD}curl$RST"
     exit 1
 }
 
@@ -95,39 +184,32 @@ download_page()
 {
     local site_filter snapshot rc
     site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
-    set_status 'Getting a new snapshot'
-#SNAPSHOT_NEW=$("$SED" -e "$site_filter" <"simon.new")
-#ok_status
-#return 0
-    printf '\n%s' "$B"
+    set_status 'Getting a new snapshot...'
     case "$DOWNLOADER" in
         *wget )
-            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE")
+            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE" 2>/dev/null)
             rc=$?
             ;;
         *curl )
-            mkfifo curl_err 2>/dev/null
-            head -1 <curl_err 1>&2 &
-            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE" 2>curl_err)
+            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE" 2>/dev/null)
             rc=$?
-            rm curl_err
             ;;
         * )
-            err_status
-            printf -- '%bUnknown downloader: "%s"\n%b' \
-               "$R" "$DOWNLOADER" "$RST" 1>&2
+            upd_status 'ERR!'
+            put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
 
     if [ 0 -ne "$rc" ]; then
-        err_status
-        printf '%bUnexpected error: %b%s%b returns code %b%s%b\n' \
-            "$R" "$BLD" "$DOWNLOADER" "$RST$R" "$BLD" "$rc" "$RST" 1>&2
+        upd_status 'ERR!'
+        TMP="${R}Unexpected error: ${BLD}$(basename "$DOWNLOADER")$RST$R"
+        TMP="$TMP returned code $BLD$rc$RST"
+        put_descr "$TMP"
         exit 1
     fi
 
     SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" | sed -e "$site_filter")
-    ok_status '\n'
+    upd_status 'OK'
 }
 
 ###############################################################################
@@ -139,22 +221,19 @@ download_page()
 file_downloader()
 {
     if [ 2 -ne $# ] ; then
-        err_status
-        printf '%b@file_downloader: missing arguments%b\n' "$R" "$RST" 1>&2
+        upd_status 'ERR!'
+        put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
     local rc
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1"
+            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1" 2>/dev/null
             rc=$?
             ;;
         *curl )
-            mkfifo curl_err 2>/dev/null
-            head -1 <curl_err 1>&2 &
-            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1" 2>curl_err
+            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1" 2>/dev/null
             rc=$?
-            rm curl_err
             ;;
         * )
             err_status
@@ -164,11 +243,12 @@ file_downloader()
     esac
     # clean up in case of downloading failure
     if [ 0 -eq $rc ] ; then
-        ok_status '\n'
+        upd_status 'OK'
     else
-        err_status
-        printf '%bUnexpected error: %b%s%b returns code %b%s%b\n' \
-            "$R" "$BLD" "$DOWNLOADER" "$RST$R" "$BLD" "$rc" "$RST" 1>&2
+        upd_status 'ERR!'
+        TMP="${R}Unexpected error: ${BLD}$(basename "$DOWNLOADER")$RST$R"
+        TMP="$TMP returns code $BLD$rc$RST"
+        put_descr "TMP"
         rm -f "$2"
     fi
 }
@@ -177,24 +257,28 @@ file_downloader()
 # Ask if a user wishes to overwrite the old snapshot with a new one
 ###############################################################################
 ask_overwrite() {
+    local yn
     while true ; do
-        read -rp '[ :: ] Overwrite the old snapshot? [y/n/diff] ' yn
+        set_status 'Overwrite the old snapshot? [y/n/diff] ' ' :: '
+        put_after_status
+        read -r yn
         case "$yn" in
             [Yy]* )
                 printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-                indent
-                printf '%bSnapshot overwritten%b\n' "$Y" "$Y"
+                upd_status 'WARN' "$yn"
+                put_descr "${Y}Snapshot overwritten$RST"
                 break;;
             [Nn]* )
-                indent
-                printf '%bSnapshot untouched%b\n' "$G" "$G";
+                upd_status 'INFO' "$yn"
+                put_descr "${G}Snapshot untouched$RST"
                 break;;
             [Dd]* )
+                upd_status ' <> ' "$yn"
                 print_diff
                 ;;
             * )
-                indent
-                printf 'Please answer yes or no\n';;
+                upd_status ' :: ' "$yn"
+                put_descr 'Please answer yes or no'
         esac
     done
 }
@@ -209,41 +293,40 @@ fetch_and_download() {
     links=$(printf -- '%s' "$1" \
         | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
         | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
-    set_status "Preparing a list of images"
+    set_status "Preparing a list of images..."
     if [ -n "$links" ] ; then
-        local fname
-        local link
-        ok_status
+        local fname link yn xoffset
+        upd_status 'OK'
         # show a list of fetched link(s)
         for link in $links; do
-            indent
-            printf -- '%b%s%b\n' "$Y" "$(basename "$link")" "$RST"
+            put_descr "$Y$(basename "$link")$RST"
         done
         # loop through the links again to download them
         for link in $links; do
             fname=$(basename "$link")
             # ask if a user wishes to save the file from the fetched link
             while true; do
-                printf -- '[%b :: ] Save %b%s%b? [y/n] ' \
-                    "$(tput sc)" "$Y" "$fname" "$RST"
+                yn='n'
+                set_status "Save $Y$fname$RST? [y/n] " ' :: '
+                put_after_status
                 read -r yn
                 case "$yn" in
                     [Yy]* )
                         file_downloader "${SITE}${link}" "./$fname"
                         break;;
                     [Nn]* )
-                        upd_status " -- " && indent
-                        printf 'Skipping...\n'
+                        upd_status ' -- ' "$yn"
+                        put_descr 'Skipping...'
                         break;;
                     * )
-                        indent
-                        printf 'Please answer yes or no\n';;
+                        upd_status ' :: ' "$yn"
+                        put_descr 'Please answer yes or no'
                 esac
             done
         done
     else
-        upd_status "${Y}WARN" && indent
-        printf 'No links fetched\n'
+        upd_status 'WARN'
+        put_descr 'No links fetched'
     fi
     ask_overwrite
 }
@@ -253,41 +336,37 @@ fetch_and_download() {
 ###############################################################################
 find_diffs() {
     local diffs
-    set_status "Comparing the snapshots"
+    set_status "Comparing the snapshots..."
     diffs=$(printf -- '%s\n' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     if [ -n "$diffs" ]
         then
-            upd_status "${Y}WARN" && indent
-            printf 'Snapshots are different\n'
+            upd_status 'WARN'
+            put_descr 'Snapshots are different'
             fetch_and_download "$diffs"
         else
-            ok_status "$(indent)"
-            printf 'Snapshots are the same\n'
+            upd_status 'OK'
+            put_descr 'Snapshots are the same'
     fi
 }
 
 ###############################################################################
 # Entry point
 ###############################################################################
+main() {
+    check_deps
+    download_page
+    # Is there simon.old file?
+    set_status 'Looking for an old snapshot...'
+    if [ -f "$SNAPSHOT_OLD" ] ; then
+        upd_status 'OK'
+        put_descr "${G}Snapshot found:$RST $Y$SNAPSHOT_OLD$Y"
+        find_diffs
+    else
+        upd_status 'INFO'
+        put_descr "Snapshot \"$SNAPSHOT_OLD\" not found"
+        printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
+        put_descr "Snapshot of the site saved as \"$SNAPSHOT_OLD\""
+    fi
+}
 
-# a hack to resolve the issue with an inconsistent work of `tput sc/rc`
-tput clear
-
-check_deps
-
-download_page
-
-# Is there simon.old file?
-set_status 'Looking for an old snapshot'
-if [ -f "$SNAPSHOT_OLD" ] ; then
-    ok_status "$(indent)"
-    printf -- 'Snapshot found: %s\n' "$SNAPSHOT_OLD"
-    find_diffs
-else
-    upd_status "${BLD}INFO"
-    indent
-    printf -- 'Snapshot "%s" not found\n' "$SNAPSHOT_OLD"
-    printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-    indent
-    printf -- 'Snapshot of the site saved as "%s"\n' "$SNAPSHOT_OLD"
-fi
+main
