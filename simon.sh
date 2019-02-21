@@ -18,7 +18,7 @@ SNAPSHOT_NEW=''
 SED=''
 DOWNLOADER=''
 WGET_OPTS='-q'
-CURL_OPTS='-s'
+CURL_OPTS='-s -f'
 RST=$(tput sgr0)
 R=$(tput setaf 1)
 G=$(tput setaf 2)
@@ -26,7 +26,6 @@ Y=$(tput setaf 3)
 BLD=$(tput bold)
 VBUF=''
 STATUS_LAST_MSG=''
-LAST_TASK=''
 TMP=''
 
 ###############################################################################
@@ -37,6 +36,7 @@ redraw() {
     slc="$(tput lines)"
     lc="$(printf -- '%s' "$VBUF" | wc -l)"
 
+    clear
     tput -S << "END"
 clear
 cup 0 0
@@ -50,33 +50,25 @@ END
 
 trap redraw WINCH
 
-#infloop() {
-#    while true; do
-#      sleep 0.1
-#    done
-#}
-#
-#trap infloop EXIT
+cleanup() {
+    tput rmcup
+}
+
+trap cleanup EXIT
 
 vbuf_append() {
-    VBUF="$VBUF$(printf -- '%b' "$1")"
+    VBUF="$VBUF$(printf -- '%s' "$1")"
+    redraw
 }
 
 vbuf_replace_last() {
-    VBUF="$(printf -- '%b' "$VBUF" | sed -e '$ s|^.*|'"$1"'|g')"
-}
-
-lt_init() {
-    LAST_TASK="$(printf -- '%b' "$1")"
-}
-
-lt_append() {
-    LAST_TASK="$LAST_TASK$(printf -- '%b' "$1")"
+    VBUF="$(printf -- '%s' "$VBUF" | "$SED" -e '$ s|^.*|'"$1"'|g')"
+    redraw
 }
 
 ##
 # Formats a line with a status and a given message and appends
-# the line to VBUF, and to LAST_TASK.
+# the line to VBUF.
 #
 # $1 - a message
 # $2 - defines the status: usually it's an empty placeholder, so if the
@@ -84,73 +76,69 @@ lt_append() {
 set_status() {
     local status msg
     [ -z "$2" ] && status='    ' || status="$2"
-    msg="$(printf -- '[%b] %b' "$status" "$1")"
-    # do not prepend leading '\n' for summary status
-    lt_init "$msg"
+    msg="$(printf -- '[%s] %s' "$status" "$1")"
     # if this isn't the first status line - prepend '\n'
-    [ -n "$STATUS_LAST_MSG" ] && msg="\\n""$msg"
-    STATUS_LAST_MSG="$(printf -- '%b' "$1")"
+    [ -n "$STATUS_LAST_MSG" ] && msg="$(printf '\n%s' "$msg")"
+    STATUS_LAST_MSG="$(printf -- '%s' "$1")"
 
     vbuf_append "$msg"
-    redraw
 }
 
 ##
-# Updates the status in a line which is obtained from a VBUF, and LAST_TASK
+# Updates the status in a line which is obtained from a VBUF
 #
 # $1 (required) - a type: one of OK, ERR!, WARN, INFO, or a custom type.
 # $2 (optional) - a string which can be appened to a message (can be empty).
+#                 the sring is needed for saving user input after a prompt.
 upd_status() {
     if [ -z "$1" ]; then
-        put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided${RST}"
+        put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided$RST"
         exit 1
     fi
     [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
     local msg st
     case "$1" in
-        OK )
-            st=" $BLD${G}OK$RST "
-            ;;
-        ERR\! )
-            st="$BLD${R}ERR!$RST"
-            ;;
-        WARN )
-            st="$BLD${Y}WARN$RST"
-            ;;
-        INFO )
-            st="${BLD}INFO$RST"
-            ;;
-        * )
-            st="$1"
+        OK )    st=" $BLD${G}OK$RST ";;
+        ERR\! ) st="$BLD${R}ERR!$RST";;
+        WARN )  st="$BLD${Y}WARN$RST";;
+        INFO )  st="${BLD}INFO$RST";;
+        * )     st="$1"
     esac
-    msg="$(printf -- '[%b] %b' "$st" "$STATUS_LAST_MSG")"
+    msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
 
     vbuf_replace_last "$msg"
-    lt_init "$msg"
-    redraw
 }
 
+##
+# Prints $1 with indentation after a status line
 put_descr() {
-    local descr
-    descr="$(printf -- '\n       %s' "$1")"
-
-    vbuf_append "$descr"
-    lt_append "$descr"
-    redraw
+    vbuf_append "$(printf -- '\n       %s' "$1")"
 }
 
-put_after_status() {
+##
+# Get length of the latest string in VBUF. Count only printable characters,
+# i.e. without special symbols for text manipulation.
+# The length is needed to put the cursor right after a prompt for user input.
+put_cursor_after_prompt() {
     local xoffset
-    xoffset="$(printf -- '%b' "$LAST_TASK" \
-        | tr -d "$Y$RST" | wc -m)"
-    xoffset=$((xoffset+2))
+    xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
+        | tr -d "$R$G$Y$RST$BLD" | wc -m)"
+    # move the cursor up on the line with a prompt
     tput cuu1
-    tput cuf "$xoffset"
+    # place the cursor after the prompt
+    tput cuf "$((xoffset+2))"
+}
+
+##
+# Set a prompt for user input. Can be updated simply with upd_status
+set_prompt() {
+  set_status "$1" ' :: '
+  put_cursor_after_prompt
 }
 
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | diff -u --color=always "$SNAPSHOT_OLD" - | less
+       | diff -u --color=always "$SNAPSHOT_OLD" - | less -R
 }
 
 ###############################################################################
@@ -187,11 +175,11 @@ download_page()
     set_status 'Getting a new snapshot...'
     case "$DOWNLOADER" in
         *wget )
-            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE" 2>/dev/null)
+            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE")
             rc=$?
             ;;
         *curl )
-            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE" 2>/dev/null)
+            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE")
             rc=$?
             ;;
         * )
@@ -208,47 +196,48 @@ download_page()
         exit 1
     fi
 
-    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" | sed -e "$site_filter")
+    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" | "$SED" -e "$site_filter")
     upd_status 'OK'
 }
 
 ###############################################################################
-# Save a file
+# Save a file. To restore a user input the function updates the status
+# by placing "yes" after the prompt. With the approach there's no need for
+# passing an actual user input but it's obvious that the answer was '[Y/y]*'
 #
-# $1 - an URL of the file
-# $2 - a path to store the file
+# $1 (required) - an URL of the file
+# $2 (required) - a path to store the file
 ###############################################################################
 file_downloader()
 {
     if [ 2 -ne $# ] ; then
-        upd_status 'ERR!'
+        upd_status 'ERR!' 'yes'
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
     local rc
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1" 2>/dev/null
+            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1"
             rc=$?
             ;;
         *curl )
-            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1" 2>/dev/null
+            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1"
             rc=$?
             ;;
         * )
-            err_status
-            printf -- '%bUnknown downloader: %b"%s"%b\n' \
-               "$R" "$BLD" "$DOWNLOADER" "$RST" 1>&2
+            upd_status 'ERR!' 'yes'
+            put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
     # clean up in case of downloading failure
     if [ 0 -eq $rc ] ; then
-        upd_status 'OK'
+        upd_status 'OK' 'yes'
     else
-        upd_status 'ERR!'
+        upd_status 'ERR!' 'yes'
         TMP="${R}Unexpected error: ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returns code $BLD$rc$RST"
-        put_descr "TMP"
+        put_descr "$TMP"
         rm -f "$2"
     fi
 }
@@ -259,8 +248,7 @@ file_downloader()
 ask_overwrite() {
     local yn
     while true ; do
-        set_status 'Overwrite the old snapshot? [y/n/diff] ' ' :: '
-        put_after_status
+        set_prompt 'Overwrite the old snapshot? [y/n/diff] '
         read -r yn
         case "$yn" in
             [Yy]* )
@@ -270,7 +258,7 @@ ask_overwrite() {
                 break;;
             [Nn]* )
                 upd_status 'INFO' "$yn"
-                put_descr "${G}Snapshot untouched$RST"
+                put_descr "${BLD}Snapshot untouched$RST"
                 break;;
             [Dd]* )
                 upd_status ' <> ' "$yn"
@@ -307,8 +295,7 @@ fetch_and_download() {
             # ask if a user wishes to save the file from the fetched link
             while true; do
                 yn='n'
-                set_status "Save $Y$fname$RST? [y/n] " ' :: '
-                put_after_status
+                set_prompt "Save $Y$fname$RST? [y/n] "
                 read -r yn
                 case "$yn" in
                     [Yy]* )
@@ -326,7 +313,7 @@ fetch_and_download() {
         done
     else
         upd_status 'WARN'
-        put_descr 'No links fetched'
+        put_descr '{Y}No links fetched{Y}'
     fi
     ask_overwrite
 }
@@ -353,6 +340,7 @@ find_diffs() {
 # Entry point
 ###############################################################################
 main() {
+    tput smcup
     check_deps
     download_page
     # Is there simon.old file?
