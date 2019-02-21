@@ -36,7 +36,6 @@ redraw() {
     slc="$(tput lines)"
     lc="$(printf -- '%s' "$VBUF" | wc -l)"
 
-    clear
     tput -S << "END"
 clear
 cup 0 0
@@ -51,7 +50,10 @@ END
 trap redraw WINCH
 
 cleanup() {
-    tput rmcup
+    tput -S <<END
+clear
+rmcup
+END
 }
 
 trap cleanup EXIT
