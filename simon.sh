@@ -316,7 +316,7 @@ fetch_and_download() {
         done
     else
         upd_status 'WARN'
-        put_descr '{Y}No links fetched{Y}'
+        put_descr "${Y}No links fetched$RST"
     fi
     ask_overwrite
 }
