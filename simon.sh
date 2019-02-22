@@ -50,6 +50,7 @@ END
 trap redraw WINCH
 
 cleanup() {
+    read -rp 'Press any key to continue...' TMP
     tput -S <<END
 clear
 rmcup
@@ -326,7 +327,7 @@ fetch_and_download() {
 find_diffs() {
     local diffs
     set_status "Comparing the snapshots..."
-    diffs=$(printf -- '%s\n' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
+    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     if [ -n "$diffs" ]
         then
             upd_status 'WARN'
