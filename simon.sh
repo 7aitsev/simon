@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+# shellcheck disable=SC2039
 
 ###############################################################################
 # Usage:
@@ -19,17 +20,17 @@ SED=''
 DOWNLOADER=''
 WGET_OPTS='-q'
 CURL_OPTS='-s -f'
-RST=$(tput sgr0)
-R=$(tput setaf 1)
-G=$(tput setaf 2)
-Y=$(tput setaf 3)
-BLD=$(tput bold)
+RST="$(tput sgr0)"
+R="$(tput setaf 1)"
+G="$(tput setaf 2)"
+Y="$(tput setaf 3)"
+BLD="$(tput bold)"
 VBUF=''
 STATUS_LAST_MSG=''
 TMP=''
 
 ###############################################################################
-# Helper function for pretty-printing
+# Helper functions for pretty-printing
 ###############################################################################
 redraw() {
     local slc lc
@@ -50,7 +51,8 @@ END
 trap redraw WINCH
 
 cleanup() {
-    read -rp 'Press any key to continue...' TMP
+    printf 'Press any key to continue...\n'
+    read -r TMP
     tput -S <<END
 clear
 rmcup
@@ -150,6 +152,7 @@ print_diff() {
 check_deps() {
     set_status 'Checking dependencies...'
     SED="$(command -v sed)"
+    # shellcheck disable=SC2181
     if [ 0 -ne $? ] ; then
         upd_status 'ERR!'
         put_descr "${R}The script requires ${BLD}sed$RST"
@@ -158,6 +161,7 @@ check_deps() {
     local dlder
     for dlder in "wget" "curl" ; do
         DOWNLOADER="$(command -v "$dlder")"
+        # shellcheck disable=SC2181
         if [ 0 -eq $? ] ; then
             upd_status 'OK'
             return 0
