@@ -13,7 +13,6 @@
 ###############################################################################
 # Global vals and vars
 ###############################################################################
-SNAPSHOT_OLD='simon.old'
 SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
 SED=''
@@ -28,6 +27,11 @@ BLD="$(tput bold)"
 VBUF=''
 STATUS_LAST_MSG=''
 TMP=''
+AUTO=''
+VERB=''
+NOERR=''
+IMAGES_DIR=''
+SNAPSHOT_OLD='simon.old'
 
 ###############################################################################
 # Helper functions for pretty-printing
@@ -58,8 +62,6 @@ clear
 rmcup
 END
 }
-
-trap cleanup EXIT
 
 vbuf_append() {
     VBUF="$VBUF$(printf -- '%s' "$1")"
@@ -144,6 +146,123 @@ set_prompt() {
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
        | diff -u --color=always "$SNAPSHOT_OLD" - | less -R
+}
+
+###############################################################################
+# Functions for parsing options and arguments
+###############################################################################
+print_help() {
+    printf '%s\n' \
+"USAGE:
+  simon [OPTIONS]
+
+OPTIONS:
+  -a      - enter non-interactive mode
+  -i dir  - define a directory to store images
+  -s path - set a path to store and use an old snapshot
+  -c      - disable colors (interactive mode only)
+  -h      - show the help and exit (interactive mode only)
+  -v      - verbose output (non-interactive mode only)
+  -q      - disable errors (non-interactive mode only)
+"
+    # a regular error code is 1, but that case should be distinguished
+    # from both a normal execution and a faulty one
+    exit -1
+}
+
+args_stash() {
+    VBUF="$VBUF$(printf -- '%b' "$1")"
+}
+
+args_out() {
+    [ -z "$VERB" ] && return
+    printf -- '%b\n' "$1" >&2
+}
+
+args_err() {
+    [ -n "$NOERR" ] && return
+    printf -- '%b\n' "$1" >&2
+}
+
+args() {
+    local a c h v q opts
+    while getopts ':ai:s:chvq' opts; do
+        case "$opts" in
+            a ) a='true';;
+            i ) IMAGES_DIR="$OPTARG";;
+            s ) SNAPSHOT_OLD="$OPTARG";;
+            c ) c='true';;
+            h ) h='true';;
+            v ) v='true';;
+            q ) q='true';;
+            \? ) args_stash "\\nUnknown option: -$OPTARG";;
+            : ) printf 'Option -%s requires an argument' "$OPTARG" >&2
+                exit 1
+                # TODO: this doesn't honor any options above: delay processing
+        esac
+    done
+
+    if [ -z "$a" ]; then
+        # interactive mode: color output, the highest verbosity possible
+        [ -n "$h" ] && print_help
+        [ -n "$c" ] && args_stash '\nWARN: -c is not implemented yet'
+        [ -n "$v" ] && args_stash '\nWARN: -v has no impact'
+        [ -n "$q" ] && args_stash '\nWARN: -q has no impact'
+    else
+        # non-interactive mode: colorless, quite (except for erros)
+        AUTO='true'
+        [ -n "$v" ] && VERB='true'
+        [ -n "$q" ] && NOERR='true'
+
+        printf -- 'INFO: the mode is not implemented\n'
+        exit 2
+        args_out "$VBUF"
+        [ -n "$c" ] && output 'WARN: -c has no effect in non-interactive mode'
+        [ -n "$h" ] && output 'WARN: -h has no effect in non-interactive mode'
+    fi
+    #echo AUTO=$AUTO, VERB=$VERB, NOERR=$NOERR
+
+    # check if a directory for images exists
+    if ! [ -d "${IMAGES_DIR:=/home/max/Pictures/}" ]; then
+        args_err "${R}No such directory: $IMAGES_DIR$RST"
+        exit 1
+    fi
+    # the path must be valid
+    case "${SNAPSHOT_OLD:=./simon.old}" in
+        # a given path has to contain a file name part
+        */ | . | \.\. | */\. | */\.\.)
+            TMP="${R}You provided a path to a directory"
+            TMP="$TMP instead of a path to a snapshot$RST\\n"
+            args_err "$TMP"
+            exit 1
+            ;;
+        * )
+            # check if a path for a snapshot contains an existing directory
+            if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
+                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST\\n"
+                args_err "$TMP"
+                exit 1
+            fi
+            # check if a path is not a directory
+            if [ -d "$SNAPSHOT_OLD" ]; then
+                TMP="${R}You provided a path to an existing directory;"
+                TMP="$TMP not to a snapshot$RST\\n"
+                args_err "$TMP"
+                exit 1
+            fi
+    esac
+
+    if [ -z "$AUTO" ] && [ -n "$VBUF" ]; then
+        printf "%s" "$VBUF"
+        printf '\nPress "q" to leave or any other key to continue... '
+        read -r q
+        case "$q" in
+            q ) exit 0;;
+            * ) VBUF=''
+        esac
+    fi
+
+    trap cleanup EXIT
 }
 
 ###############################################################################
@@ -306,7 +425,7 @@ fetch_and_download() {
                 read -r yn
                 case "$yn" in
                     [Yy]* )
-                        file_downloader "${SITE}${link}" "./$fname"
+                        file_downloader "${SITE}${link}" "$IMAGES_DIR$fname"
                         break;;
                     [Nn]* )
                         upd_status ' -- ' "$yn"
@@ -347,6 +466,7 @@ find_diffs() {
 # Entry point
 ###############################################################################
 main() {
+    args "$@"
     tput smcup
     check_deps
     download_page
@@ -364,4 +484,4 @@ main() {
     fi
 }
 
-main
+main "$@"
