@@ -23,7 +23,7 @@ CURL_OPTS='-s -f'
 RST="$(tput sgr0)"
 R="$(tput setaf 1)"
 G="$(tput setaf 2)"
-Y="$(tput setaf 3)"
+B="$(tput setaf 4)"
 BLD="$(tput bold)"
 VBUF=''
 STATUS_LAST_MSG=''
@@ -105,7 +105,7 @@ upd_status() {
     case "$1" in
         OK )    st=" $BLD${G}OK$RST ";;
         ERR\! ) st="$BLD${R}ERR!$RST";;
-        WARN )  st="$BLD${Y}WARN$RST";;
+        WARN )  st="$BLD${B}WARN$RST";;
         INFO )  st="${BLD}INFO$RST";;
         * )     st="$1"
     esac
@@ -127,7 +127,7 @@ put_descr() {
 put_cursor_after_prompt() {
     local xoffset
     xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | tr -d "$R$G$Y$RST$BLD" | wc -m)"
+        | tr -d "$R$G$B$RST$BLD" | wc -m)"
     # move the cursor up on the line with a prompt
     tput cuu1
     # place the cursor after the prompt
@@ -261,7 +261,7 @@ ask_overwrite() {
             [Yy]* )
                 printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
                 upd_status 'WARN' "$yn"
-                put_descr "${Y}Snapshot overwritten$RST"
+                put_descr "${B}Snapshot overwritten$RST"
                 break;;
             [Nn]* )
                 upd_status 'INFO' "$yn"
@@ -294,7 +294,7 @@ fetch_and_download() {
         upd_status 'OK'
         # show a list of fetched link(s)
         for link in $links; do
-            put_descr "$Y$(basename "$link")$RST"
+            put_descr "$B$(basename "$link")$RST"
         done
         # loop through the links again to download them
         for link in $links; do
@@ -302,7 +302,7 @@ fetch_and_download() {
             # ask if a user wishes to save the file from the fetched link
             while true; do
                 yn='n'
-                set_prompt "Save $Y$fname$RST? [y/n] "
+                set_prompt "Save $B$fname$RST? [y/n] "
                 read -r yn
                 case "$yn" in
                     [Yy]* )
@@ -320,7 +320,7 @@ fetch_and_download() {
         done
     else
         upd_status 'WARN'
-        put_descr "${Y}No links fetched$RST"
+        put_descr "${B}No links fetched$RST"
     fi
     ask_overwrite
 }
@@ -354,7 +354,7 @@ main() {
     set_status 'Looking for an old snapshot...'
     if [ -f "$SNAPSHOT_OLD" ] ; then
         upd_status 'OK'
-        put_descr "${G}Snapshot found:$RST $Y$SNAPSHOT_OLD$Y"
+        put_descr "${G}Snapshot found:$RST $B$SNAPSHOT_OLD$RST"
         find_diffs
     else
         upd_status 'INFO'
