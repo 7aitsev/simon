@@ -167,16 +167,24 @@ OPTIONS:
 "
     # a regular error code is 1, but that case should be distinguished
     # from both a normal execution and a faulty one
-    exit -1
+    exit 3
 }
 
 args_stash() {
     VBUF="$VBUF$(printf -- '%b' "$1")"
 }
 
+args_unstash() {
+    [ -n "$VERB" ] && return
+    local lc
+    lc=$(printf -- '%s' "$VBUF" | wc -l)
+    printf -- '%s' "$VBUF" | tail -n $((lc+0 )) | uniq
+    VBUF=''
+}
+
 args_out() {
-    [ -z "$VERB" ] && return
-    printf -- '%b\n' "$1" >&2
+    [ -n "$VERB" ] && return
+    printf -- '%b\n' "$1"
 }
 
 args_err() {
@@ -215,8 +223,8 @@ args() {
         [ -n "$q" ] && NOERR='true'
 
         printf -- 'INFO: the mode is not implemented\n'
-        exit 2
-        args_out "$VBUF"
+        #exit 2
+        args_unstash
         [ -n "$c" ] && output 'WARN: -c has no effect in non-interactive mode'
         [ -n "$h" ] && output 'WARN: -h has no effect in non-interactive mode'
     fi
@@ -253,12 +261,13 @@ args() {
     esac
 
     if [ -z "$AUTO" ] && [ -n "$VBUF" ]; then
-        printf "%s" "$VBUF"
+        args_unstash
+        #echo "$VBUF"
         printf '\nPress "q" to leave or any other key to continue... '
         read -r q
         case "$q" in
             q ) exit 0;;
-            * ) VBUF=''
+            * ) :
         esac
     fi
 
