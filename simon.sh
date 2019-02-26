@@ -18,7 +18,7 @@ SNAPSHOT_NEW=''
 SED=''
 DOWNLOADER=''
 WGET_OPTS='-q'
-CURL_OPTS='-s -f'
+CURL_OPTS='-q -sf'
 RST="$(tput sgr0)"
 R="$(tput setaf 1)"
 G="$(tput setaf 2)"
@@ -29,7 +29,7 @@ STATUS_LAST_MSG=''
 TMP=''
 AUTO=''
 VERB=''
-NOERR=''
+NERR=''
 IMAGES_DIR=''
 SNAPSHOT_OLD='simon.old'
 
@@ -170,39 +170,54 @@ OPTIONS:
     exit 3
 }
 
+##
+# Append $1 to VBUF (hide output). Call args_unstash to print out all
+# stashed messages.
 args_stash() {
     VBUF="$VBUF$(printf -- '%b' "$1")"
 }
 
+##
+# Output content of VBUF and zero it out. The function assumes that
+# every line was prepended with leading \n. So it removes the first empty
+# line prior to printing.
 args_unstash() {
-    [ -n "$VERB" ] && return
+    [ 0 = "$VERB" ] && return
     local lc
     lc=$(printf -- '%s' "$VBUF" | wc -l)
-    printf -- '%s' "$VBUF" | tail -n $((lc+0 )) | uniq
+    printf -- '%s' "$VBUF" | tail -n "$lc" | uniq
     VBUF=''
 }
 
 args_out() {
-    [ -n "$VERB" ] && return
+    [ 0 = "$VERB" ] && return
     printf -- '%b\n' "$1"
 }
 
 args_err() {
-    [ -n "$NOERR" ] && return
+    [ 1 = "$NERR" ] && return
     printf -- '%b\n' "$1" >&2
 }
 
+##
+# The function parses arguments in such way that a user will be notified
+# about all wrong options. Also the behavior should be consistent. If there
+# is one or more -h switches - print help once, even if there are more options
+# like in "./simon -xxyzhh". Note that in the example command illegal option
+# "-x" appeared twice, but the warning should be outputted only once. If
+# user do not want to see any regular messages in non-interactive mode
+# (no "-v"), no messages should be printed, even errors if "-q" was specified.
 args() {
     local a c h v q opts
     while getopts ':ai:s:chvq' opts; do
         case "$opts" in
-            a ) a='true';;
+            a ) a=1;;
             i ) IMAGES_DIR="$OPTARG";;
             s ) SNAPSHOT_OLD="$OPTARG";;
-            c ) c='true';;
-            h ) h='true';;
-            v ) v='true';;
-            q ) q='true';;
+            c ) c=1;;
+            h ) h=1;;
+            v ) v=1;;
+            q ) q=1;;
             \? ) args_stash "\\nUnknown option: -$OPTARG";;
             : ) printf 'Option -%s requires an argument' "$OPTARG" >&2
                 exit 1
@@ -212,23 +227,21 @@ args() {
 
     if [ -z "$a" ]; then
         # interactive mode: color output, the highest verbosity possible
+        AUTO=0; VERB=1; NERR=0
         [ -n "$h" ] && print_help
         [ -n "$c" ] && args_stash '\nWARN: -c is not implemented yet'
         [ -n "$v" ] && args_stash '\nWARN: -v has no impact'
         [ -n "$q" ] && args_stash '\nWARN: -q has no impact'
     else
         # non-interactive mode: colorless, quite (except for erros)
-        AUTO='true'
-        [ -n "$v" ] && VERB='true'
-        [ -n "$q" ] && NOERR='true'
+        AUTO=1
+        [ -n "$v" ] && VERB=1 || VERB=0
+        [ -n "$q" ] && NERR=1 || NERR=0
 
-        printf -- 'INFO: the mode is not implemented\n'
-        #exit 2
         args_unstash
-        [ -n "$c" ] && output 'WARN: -c has no effect in non-interactive mode'
-        [ -n "$h" ] && output 'WARN: -h has no effect in non-interactive mode'
+        [ -n "$c" ] && args_out 'WARN: -c has no effect in non-interactive mode'
+        [ -n "$h" ] && args_out 'WARN: -h has no effect in non-interactive mode'
     fi
-    #echo AUTO=$AUTO, VERB=$VERB, NOERR=$NOERR
 
     # check if a directory for images exists
     if ! [ -d "${IMAGES_DIR:=/home/max/Pictures/}" ]; then
@@ -240,35 +253,32 @@ args() {
         # a given path has to contain a file name part
         */ | . | \.\. | */\. | */\.\.)
             TMP="${R}You provided a path to a directory"
-            TMP="$TMP instead of a path to a snapshot$RST\\n"
+            TMP="$TMP instead of a path to a snapshot$RST"
             args_err "$TMP"
             exit 1
             ;;
         * )
             # check if a path for a snapshot contains an existing directory
             if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
-                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST\\n"
+                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST"
                 args_err "$TMP"
                 exit 1
             fi
             # check if a path is not a directory
             if [ -d "$SNAPSHOT_OLD" ]; then
                 TMP="${R}You provided a path to an existing directory;"
-                TMP="$TMP not to a snapshot$RST\\n"
+                TMP="$TMP not to a snapshot$RST"
                 args_err "$TMP"
                 exit 1
             fi
     esac
 
-    if [ -z "$AUTO" ] && [ -n "$VBUF" ]; then
+    # notify about warnings if VBUF not empty
+    if [ 0 = "$AUTO" ] && [ -n "$VBUF" ]; then
         args_unstash
-        #echo "$VBUF"
         printf '\nPress "q" to leave or any other key to continue... '
         read -r q
-        case "$q" in
-            q ) exit 0;;
-            * ) :
-        esac
+        [ q = "$q" ] && exit 0
     fi
 
     trap cleanup EXIT
