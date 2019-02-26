@@ -28,8 +28,7 @@ Y="$(tput setaf 3)"
 B="$(tput setaf 4)";
 BLD="$(tput bold)"
 STATUS_LAST_MSG=''
-WAS_ERR=''
-AUTO=''; VERB=''; NERR=''; DIFF=''; COLR='always'
+FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FCOLR='always'
 TMP=''
 VBUF=''
 
@@ -80,8 +79,8 @@ vbuf_replace_last() {
 # $2 - defines the status: usually it's an empty placeholder, so if the
 #      parameter is empty, then the placeholder is filled with four spaces
 set_status() {
-    if [ 1 = "$AUTO" ]; then
-        [ 1 = "$VERB" ] && printf -- ':: %s ' "$1"
+    if [ 1 = "$FAUTO" ]; then
+        [ 1 = "$FVERB" ] && printf -- ':: %s ' "$1"
         return
     fi
     local status msg
@@ -107,16 +106,16 @@ upd_status() {
     fi
     [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
     local msg st
-    WAS_ERR=0
+    FWERR=0
     case "$1" in
         OK )    st=" $BLD${G}OK$RST ";;
-        ERR\! ) st="$BLD${R}ERR!$RST"; WAS_ERR=1;;
+        ERR\! ) st="$BLD${R}ERR!$RST"; FWERR=1;;
         WARN )  st="$BLD${Y}WARN$RST";;
         INFO )  st="${BLD}INFO$RST";;
         * )     st="$1"
     esac
-    if [ 1 = "$AUTO" ]; then
-        [ 1 = "$VERB" ] && printf '%s\n' "$st"
+    if [ 1 = "$FAUTO" ]; then
+        [ 1 = "$FVERB" ] && printf '%s\n' "$st"
         return
     fi
     msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
@@ -127,11 +126,11 @@ upd_status() {
 ##
 # Prints $1 with indentation after a status line
 put_descr() {
-    if [ 1 = "$AUTO" ]; then
-        if [ 1 = "$WAS_ERR" ]; then
-            [ 0 = "$NERR" ] && printf '%s\n' "$1" >&2
+    if [ 1 = "$FAUTO" ]; then
+        if [ 1 = "$FWERR" ]; then
+            [ 0 = "$FNERR" ] && printf '%s\n' "$1" >&2
         else
-            [ 1 = "$VERB" ] && printf '%s\n' "$1"
+            [ 1 = "$FVERB" ] && printf '%s\n' "$1"
         fi
         return
     fi
@@ -161,11 +160,17 @@ set_prompt() {
 
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | diff -u --color="$COLR" "$SNAPSHOT_OLD" -
+       | diff -u --color="$FCOLR" "$SNAPSHOT_OLD" -
 }
 
+##
+# Resets global variables related to text manipulation and removes those
+# special characters from VBUF if it's not empty.
 disable_colors() {
-    COLR='never'
+    FCOLR='never'
+    if [ -n "$VBUF" ]; then
+        VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
+    fi
     RST=''; R=''; G=''; B=''; BLD=''
 }
 
@@ -204,7 +209,7 @@ args_stash() {
 # every line was prepended with leading \n. So it removes the first empty
 # line prior to printing.
 args_unstash() {
-    [ 0 = "$VERB" ] && return
+    [ 0 = "$FVERB" ] && return
     local lc
     lc=$(printf -- '%s' "$VBUF" | wc -l)
     printf -- '%s' "$VBUF" | tail -n "$lc" | uniq
@@ -212,12 +217,12 @@ args_unstash() {
 }
 
 args_out() {
-    [ 0 = "$VERB" ] && return
+    [ 0 = "$FVERB" ] && return
     printf -- '%b\n' "$1"
 }
 
 args_err() {
-    [ 1 = "$NERR" ] && return
+    [ 1 = "$FNERR" ] && return
     printf -- '%b\n' "$1" >&2
 }
 
@@ -248,29 +253,31 @@ args() {
         esac
     done
 
+    [ -n "$c" ] && disable_colors
+
     if [ -z "$a" ]; then
-        AUTO=0; VERB=1; NERR=0; DIFF=0
+        FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
         [ -n "$h" ] && print_help
         [ -n "$v" ] && args_stash "\\n${B}WARN: -v has no impact$RST"
         [ -n "$q" ] && args_stash "\\n${B}WARN: -q has no impact$RST"
         [ -n "$d" ] && args_stash "\\n${B}WARN: -d has no impact$RST"
     else
-        AUTO=1
-        [ -n "$v" ] && VERB=1 || VERB=0
-        [ -n "$q" ] && NERR=1 || NERR=0
-        [ -n "$d" ] && DIFF=1 || DIFF=0
-        if [ 1 = "$VERB" ] && [ 1 = "$NERR" ]; then
+        FAUTO=1
+        [ -n "$v" ] && FVERB=1 || FVERB=0
+        [ -n "$q" ] && FNERR=1 || FNERR=0
+        [ -n "$d" ] && FDIFF=1 || FDIFF=0
+        if [ 1 = "$FVERB" ] && [ 1 = "$FNERR" ]; then
             TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
             TMP="$TMP no sense.\n      Proceeding with the defaults "
             TMP="$TMP (no -v and -q)...$RST"
             printf '%b\n' "$TMP" >&2
-            VERB=0; NERR=0
+            FVERB=0; FNERR=0
         fi
-        if [ 1 = "$DIFF" ] && [ 0 = "$VERB" ] && [ 0 = "$NERR" ]; then
+        if [ 1 = "$FDIFF" ] && [ 0 = "$FVERB" ] && [ 0 = "$FNERR" ]; then
             TMP="$R${BLD}ERR!$RST$R: -d option has no sense without -v."
             TMP="$TMP\n      Ignoring -d and proceeding...$RST"
             printf '%b\n' "$TMP" >&2
-            VERB=0; NERR=0
+            FVERB=0; FNERR=0
         fi
         args_unstash
         [ -n "$h" ] && \
@@ -286,8 +293,8 @@ args() {
     case "${SNAPSHOT_OLD:=./simon.old}" in
         # a given path has to contain a file name part
         */ | . | \.\. | */\. | */\.\.)
-            TMP="${R}You provided a path to a directory"
-            TMP="$TMP instead of a path to a snapshot$RST"
+            TMP="${R}Specify a path to a ${BLD}file$RST$R"
+            TMP="$TMP for an old snapshot$RST"
             args_err "$TMP"
             exit 1
             ;;
@@ -299,7 +306,7 @@ args() {
                 exit 1
             fi
             # check if a path is not a directory
-            if [ -d "$SNAPSHOT_OLD" ]; then
+            if [ -d "$SNAPSHOT_OLD"are ]; then
                 TMP="${R}You provided a path to an existing directory;"
                 TMP="$TMP not to a snapshot$RST"
                 args_err "$TMP"
@@ -308,16 +315,14 @@ args() {
     esac
 
     # notify about warnings if VBUF not empty
-    if [ 0 = "$AUTO" ] && [ -n "$VBUF" ]; then
+    if [ 0 = "$FAUTO" ] && [ -n "$VBUF" ]; then
         args_unstash
         printf '\nEnter "q" to leave or any other key to continue... '
         read -r q
         [ q = "$q" ] && exit 0
     fi
 
-    [ -n "$c" ] && disable_colors
-
-    if [ 0 = "$AUTO" ]; then
+    if [ 0 = "$FAUTO" ]; then
         tput smcup
         trap redraw WINCH
         trap cleanup EXIT
@@ -337,7 +342,7 @@ check_deps() {
         exit 1
     fi
     local dlder
-    for dlder in "wget" "curl" ; do
+    for dlder in 'wget' 'curl' ; do
         DOWNLOADER="$(command -v "$dlder")"
         # shellcheck disable=SC2181
         if [ 0 -eq $? ] ; then
@@ -393,8 +398,7 @@ download_page()
 # $1 (required) - an URL of the file
 # $2 (required) - a path to store the file
 ###############################################################################
-file_downloader()
-{
+file_downloader() {
     if [ 2 -ne $# ] ; then
         upd_status 'ERR!' 'yes'
         put_descr "${R}@file_downloader: missing arguments$RST"
@@ -433,22 +437,21 @@ file_downloader()
 ask_overwrite() {
     local yn
     while true ; do
-        if [ 0 = "$AUTO" ]; then
+        if [ 0 = "$FAUTO" ]; then
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
             read -r yn
         else
-            if [ 1 = "$DIFF" ] && [ 1 = "$VERB" ]; then
+            if [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ]; then
                 printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
                 print_diff
                 printf '%s-----END DIFF BLOCK-----%s\n' "$B" "$RST"
             fi
-
             set_status 'Overriding the old snapshot...'
             yn='y'
         fi
         case "$yn" in
             [Yy]* )
-#printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
+                printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
                 upd_status 'WARN' "$yn"
                 put_descr "${Y}Snapshot overwritten$RST"
                 break;;
@@ -477,7 +480,7 @@ fetch_and_download() {
     links=$(printf -- '%s' "$1" \
         | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
         | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
-    set_status "Preparing a list of images..."
+    set_status 'Preparing a list of images...'
     if [ -n "$links" ] ; then
         local fname link yn xoffset
         upd_status 'OK'
@@ -490,7 +493,7 @@ fetch_and_download() {
             fname=$(basename "$link")
             # ask if a user wishes to save the file from the fetched link
             while true; do
-                if [ 1 = "$AUTO" ]; then
+                if [ 1 = "$FAUTO" ]; then
                     set_status "Downloading $B$fname$RST..."
                     yn='y'
                 else
@@ -513,7 +516,7 @@ fetch_and_download() {
         done
     else
         upd_status 'INFO'
-        put_descr "No links fetched"
+        put_descr 'No links are fetched'
     fi
     ask_overwrite
 }
@@ -523,7 +526,7 @@ fetch_and_download() {
 ###############################################################################
 find_diffs() {
     local diffs
-    set_status "Comparing the snapshots..."
+    set_status 'Comparing the snapshots...'
     diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
     if [ -n "$diffs" ]
         then
@@ -547,13 +550,13 @@ main() {
     set_status 'Looking for an old snapshot...'
     if [ -f "$SNAPSHOT_OLD" ] ; then
         upd_status 'OK'
-        put_descr "${G}Snapshot found:$RST $Y$SNAPSHOT_OLD$RST"
+        put_descr "${G}Snapshot is found:$RST $Y$SNAPSHOT_OLD$RST"
         find_diffs
     else
         upd_status 'INFO'
-        put_descr "Snapshot \"$SNAPSHOT_OLD\" not found"
+        put_descr "Snapshot \"$SNAPSHOT_OLD\" is not found"
         printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-        put_descr "Snapshot of the site saved as \"$SNAPSHOT_OLD\""
+        put_descr 'Snapshot of the site is created'
     fi
 }
 
