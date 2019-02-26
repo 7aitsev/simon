@@ -26,7 +26,7 @@ or find on the page "Clone or download" button, press on it and download a ZIP a
 
 ### Prerequisites
 
-The script should run fine on a GNU/Linux distributive in any POSIX®-compatible shell like BASH, Zsh or DASH. You also need either `curl` or `wget` to be installed as well as `sed`. If you are not sure whether or not those utilities are installed, the script will generate descriptive messages about which of the programs you missed.
+The script should run fine on a GNU/Linux distributive in any POSIX®-compliant shell like BASH, Zsh or DASH. You also need either `curl` or `wget` to be installed as well as `sed`. If you are not sure whether or not those utilities are installed, the script will generate descriptive messages about which of the programs you missed.
 
 ### Installing
 
@@ -37,12 +37,12 @@ Installation is not required. But you cat place the script under `/usr/local/bin
 sudo install -m 0555 -o root -g root simon.sh /usr/local/bin/simon
 ```
 
-You have to have root priviliges in order to successfully run the last command above.
+You have to have root privileges in order to successfully run the last command above.
 
 ## Usage:
 
 ```
-simon [OPTIONS]`
+simon [OPTIONS]
 ```
 
 OPTIONS
@@ -56,7 +56,7 @@ There are two modes. If the following options are used in a not appropriate mode
 
 INTERACTIVE MODE (the default):
 
-* `??`, - simplified output (like in non-interactive mode) [TODO]
+* `??` - simplified output (like in non-interactive mode) [TODO]
 * `-h` - print short version of the USAGE and exit
 
 NON-INTERACTIVE MODE
@@ -72,4 +72,4 @@ The mode is silent by default, except for errors.
 
 ## Contributing
 
-Feel free to open an issue with any question or problems related to the project. Any ideas or pull request would be welcomed.
+Feel free to open an issue with any questions or problems related to the project. Any ideas or pull requests would be welcomed.
