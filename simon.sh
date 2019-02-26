@@ -15,6 +15,8 @@
 ###############################################################################
 SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
+IMAGES_DIR=''
+SNAPSHOT_OLD='simon.old'
 SED=''
 DOWNLOADER=''
 WGET_OPTS='-q'
@@ -23,15 +25,13 @@ RST="$(tput sgr0)"
 R="$(tput setaf 1)"
 G="$(tput setaf 2)"
 Y="$(tput setaf 3)"
+B="$(tput setaf 4)";
 BLD="$(tput bold)"
-VBUF=''
 STATUS_LAST_MSG=''
+WAS_ERR=''
+AUTO=''; VERB=''; NERR=''; DIFF=''; COLR='always'
 TMP=''
-AUTO=''
-VERB=''
-NERR=''
-IMAGES_DIR=''
-SNAPSHOT_OLD='simon.old'
+VBUF=''
 
 ###############################################################################
 # Helper functions for pretty-printing
@@ -42,8 +42,8 @@ redraw() {
     lc="$(printf -- '%s' "$VBUF" | wc -l)"
 
     tput -S << "END"
-clear
 cup 0 0
+ed
 END
     if [ "$slc" -gt "$lc" ]; then
         printf -- '%s\n' "$VBUF"
@@ -52,13 +52,12 @@ END
     fi
 }
 
-trap redraw WINCH
-
 cleanup() {
-    printf 'Press any key to continue...\n'
+    printf 'Enter any key to continue...'
     read -r TMP
     tput -S <<END
-clear
+cup 0 0
+ed
 rmcup
 END
 }
@@ -81,6 +80,10 @@ vbuf_replace_last() {
 # $2 - defines the status: usually it's an empty placeholder, so if the
 #      parameter is empty, then the placeholder is filled with four spaces
 set_status() {
+    if [ 1 = "$AUTO" ]; then
+        [ 1 = "$VERB" ] && printf -- ':: %s ' "$1"
+        return
+    fi
     local status msg
     [ -z "$2" ] && status='    ' || status="$2"
     msg="$(printf -- '[%s] %s' "$status" "$1")"
@@ -104,13 +107,18 @@ upd_status() {
     fi
     [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
     local msg st
+    WAS_ERR=0
     case "$1" in
         OK )    st=" $BLD${G}OK$RST ";;
-        ERR\! ) st="$BLD${R}ERR!$RST";;
+        ERR\! ) st="$BLD${R}ERR!$RST"; WAS_ERR=1;;
         WARN )  st="$BLD${Y}WARN$RST";;
         INFO )  st="${BLD}INFO$RST";;
         * )     st="$1"
     esac
+    if [ 1 = "$AUTO" ]; then
+        [ 1 = "$VERB" ] && printf '%s\n' "$st"
+        return
+    fi
     msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
 
     vbuf_replace_last "$msg"
@@ -119,6 +127,14 @@ upd_status() {
 ##
 # Prints $1 with indentation after a status line
 put_descr() {
+    if [ 1 = "$AUTO" ]; then
+        if [ 1 = "$WAS_ERR" ]; then
+            [ 0 = "$NERR" ] && printf '%s\n' "$1" >&2
+        else
+            [ 1 = "$VERB" ] && printf '%s\n' "$1"
+        fi
+        return
+    fi
     vbuf_append "$(printf -- '\n       %s' "$1")"
 }
 
@@ -145,7 +161,12 @@ set_prompt() {
 
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | diff -u --color=always "$SNAPSHOT_OLD" - | less -R
+       | diff -u --color="$COLR" "$SNAPSHOT_OLD" -
+}
+
+disable_colors() {
+    COLR='never'
+    RST=''; R=''; G=''; B=''; BLD=''
 }
 
 ###############################################################################
@@ -160,10 +181,11 @@ OPTIONS:
   -a      - enter non-interactive mode
   -i dir  - define a directory to store images
   -s path - set a path to store and use an old snapshot
-  -c      - disable colors (interactive mode only)
+  -c      - disable colors
   -h      - show the help and exit (interactive mode only)
   -v      - verbose output (non-interactive mode only)
   -q      - disable errors (non-interactive mode only)
+  -d      - print diff (only with -v in non-interactive mode)
 "
     # a regular error code is 1, but that case should be distinguished
     # from both a normal execution and a faulty one
@@ -208,8 +230,8 @@ args_err() {
 # user do not want to see any regular messages in non-interactive mode
 # (no "-v"), no messages should be printed, even errors if "-q" was specified.
 args() {
-    local a c h v q opts
-    while getopts ':ai:s:chvq' opts; do
+    local a c h v q d opts
+    while getopts ':ai:s:chvqd' opts; do
         case "$opts" in
             a ) a=1;;
             i ) IMAGES_DIR="$OPTARG";;
@@ -218,33 +240,45 @@ args() {
             h ) h=1;;
             v ) v=1;;
             q ) q=1;;
-            \? ) args_stash "\\nUnknown option: -$OPTARG";;
-            : ) printf 'Option -%s requires an argument' "$OPTARG" >&2
+            d ) d=1;;
+            \? ) args_stash "\\n${B}Unknown option: -$OPTARG$RST";;
+            : ) printf 'Option -%s requires an argument\n' "$OPTARG" >&2
                 exit 1
                 # TODO: this doesn't honor any options above: delay processing
         esac
     done
 
     if [ -z "$a" ]; then
-        # interactive mode: color output, the highest verbosity possible
-        AUTO=0; VERB=1; NERR=0
+        AUTO=0; VERB=1; NERR=0; DIFF=0
         [ -n "$h" ] && print_help
-        [ -n "$c" ] && args_stash '\nWARN: -c is not implemented yet'
-        [ -n "$v" ] && args_stash '\nWARN: -v has no impact'
-        [ -n "$q" ] && args_stash '\nWARN: -q has no impact'
+        [ -n "$v" ] && args_stash "\\n${B}WARN: -v has no impact$RST"
+        [ -n "$q" ] && args_stash "\\n${B}WARN: -q has no impact$RST"
+        [ -n "$d" ] && args_stash "\\n${B}WARN: -d has no impact$RST"
     else
-        # non-interactive mode: colorless, quite (except for erros)
         AUTO=1
         [ -n "$v" ] && VERB=1 || VERB=0
         [ -n "$q" ] && NERR=1 || NERR=0
-
+        [ -n "$d" ] && DIFF=1 || DIFF=0
+        if [ 1 = "$VERB" ] && [ 1 = "$NERR" ]; then
+            TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
+            TMP="$TMP no sense.\n      Proceeding with the defaults "
+            TMP="$TMP (no -v and -q)...$RST"
+            printf '%b\n' "$TMP" >&2
+            VERB=0; NERR=0
+        fi
+        if [ 1 = "$DIFF" ] && [ 0 = "$VERB" ] && [ 0 = "$NERR" ]; then
+            TMP="$R${BLD}ERR!$RST$R: -d option has no sense without -v."
+            TMP="$TMP\n      Ignoring -d and proceeding...$RST"
+            printf '%b\n' "$TMP" >&2
+            VERB=0; NERR=0
+        fi
         args_unstash
-        [ -n "$c" ] && args_out 'WARN: -c has no effect in non-interactive mode'
-        [ -n "$h" ] && args_out 'WARN: -h has no effect in non-interactive mode'
+        [ -n "$h" ] && \
+            args_out "${B}WARN: -h has no effect in non-interactive mode$RST"
     fi
 
     # check if a directory for images exists
-    if ! [ -d "${IMAGES_DIR:=/home/max/Pictures/}" ]; then
+    if ! [ -d "${IMAGES_DIR:=./}" ]; then
         args_err "${R}No such directory: $IMAGES_DIR$RST"
         exit 1
     fi
@@ -276,12 +310,18 @@ args() {
     # notify about warnings if VBUF not empty
     if [ 0 = "$AUTO" ] && [ -n "$VBUF" ]; then
         args_unstash
-        printf '\nPress "q" to leave or any other key to continue... '
+        printf '\nEnter "q" to leave or any other key to continue... '
         read -r q
         [ q = "$q" ] && exit 0
     fi
 
-    trap cleanup EXIT
+    [ -n "$c" ] && disable_colors
+
+    if [ 0 = "$AUTO" ]; then
+        tput smcup
+        trap redraw WINCH
+        trap cleanup EXIT
+    fi
 }
 
 ###############################################################################
@@ -393,11 +433,22 @@ file_downloader()
 ask_overwrite() {
     local yn
     while true ; do
-        set_prompt 'Overwrite the old snapshot? [y/n/diff] '
-        read -r yn
+        if [ 0 = "$AUTO" ]; then
+            set_prompt 'Overwrite the old snapshot? [y/n/diff] '
+            read -r yn
+        else
+            if [ 1 = "$DIFF" ] && [ 1 = "$VERB" ]; then
+                printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
+                print_diff
+                printf '%s-----END DIFF BLOCK-----%s\n' "$B" "$RST"
+            fi
+
+            set_status 'Overriding the old snapshot...'
+            yn='y'
+        fi
         case "$yn" in
             [Yy]* )
-                printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
+#printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
                 upd_status 'WARN' "$yn"
                 put_descr "${Y}Snapshot overwritten$RST"
                 break;;
@@ -407,7 +458,7 @@ ask_overwrite() {
                 break;;
             [Dd]* )
                 upd_status ' <> ' "$yn"
-                print_diff
+                print_diff | less -R
                 ;;
             * )
                 upd_status ' :: ' "$yn"
@@ -439,9 +490,13 @@ fetch_and_download() {
             fname=$(basename "$link")
             # ask if a user wishes to save the file from the fetched link
             while true; do
-                yn='n'
-                set_prompt "Save $Y$fname$RST? [y/n] "
-                read -r yn
+                if [ 1 = "$AUTO" ]; then
+                    set_status "Downloading $B$fname$RST..."
+                    yn='y'
+                else
+                    set_prompt "Save $Y$fname$RST? [y/n] "
+                    read -r yn
+                fi
                 case "$yn" in
                     [Yy]* )
                         file_downloader "${SITE}${link}" "$IMAGES_DIR$fname"
@@ -457,8 +512,8 @@ fetch_and_download() {
             done
         done
     else
-        upd_status 'WARN'
-        put_descr "${Y}No links fetched$RST"
+        upd_status 'INFO'
+        put_descr "No links fetched"
     fi
     ask_overwrite
 }
@@ -486,14 +541,13 @@ find_diffs() {
 ###############################################################################
 main() {
     args "$@"
-    tput smcup
     check_deps
     download_page
     # Is there simon.old file?
     set_status 'Looking for an old snapshot...'
     if [ -f "$SNAPSHOT_OLD" ] ; then
         upd_status 'OK'
-        put_descr "${G}Snapshot found:$RST $Y$SNAPSHOT_OLD$Y"
+        put_descr "${G}Snapshot found:$RST $Y$SNAPSHOT_OLD$RST"
         find_diffs
     else
         upd_status 'INFO'
