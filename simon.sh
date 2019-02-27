@@ -2,15 +2,6 @@
 # shellcheck disable=SC2039
 
 ###############################################################################
-# Usage:
-#
-# 1. Place the script in a dedicated directory, e.g., "./simon/simon.sh".
-# 2. cd to the folder.
-# 3. Run the script and follow the prompts. If it's the first run, then
-#    you'll be informed that a snapshot named "simon.old" has been created.
-###############################################################################
-
-###############################################################################
 # Global vals and vars
 ###############################################################################
 SITE='http://simonstalenhag.se/'
@@ -19,15 +10,16 @@ IMAGES_DIR=''
 SNAPSHOT_OLD='simon.old'
 SED=''
 DOWNLOADER=''
-WGET_OPTS='-q'
-CURL_OPTS='-q -sf'
+WGET_OPTS='--no-config --quiet'
+CURL_OPTS='--disable --silent --fail'
+DIFF_OPTS='--color=always'
 RST="$(tput sgr0)"
 R="$(tput setaf 1)"
 G="$(tput setaf 2)"
 B="$(tput setaf 4)"
 BLD="$(tput bold)"
 STATUS_LAST_MSG=''
-FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FCOLR='always'
+FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''
 TMP=''
 VBUF=''
 
@@ -159,14 +151,14 @@ set_prompt() {
 
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | diff -u --color="$FCOLR" "$SNAPSHOT_OLD" -
+       | eval diff --unified "$DIFF_OPTS" -- "$SNAPSHOT_OLD" -
 }
 
 ##
 # Resets global variables related to text manipulation and removes those
 # special characters from VBUF if it's not empty.
 disable_colors() {
-    FCOLR='never'
+    DIFF_OPTS=''
     if [ -n "$VBUF" ]; then
         VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
     fi
@@ -526,7 +518,7 @@ fetch_and_download() {
 find_diffs() {
     local diffs
     set_status 'Comparing the snapshots...'
-    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff "$SNAPSHOT_OLD" -)
+    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff -- "$SNAPSHOT_OLD" -)
     if [ -n "$diffs" ]
         then
             upd_status 'WARN'
