@@ -19,7 +19,7 @@ G="$(tput setaf 2)"
 B="$(tput setaf 4)"
 BLD="$(tput bold)"
 STATUS_LAST_MSG=''
-FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''
+FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=0
 TMP=''
 VBUF=''
 
@@ -139,14 +139,15 @@ put_cursor_after_prompt() {
     # move the cursor up on the line with a prompt
     tput cuu1
     # place the cursor after the prompt
-    tput cuf "$((xoffset+2))"
+    [ 0 = "$FNCOL" ] && xoffset="$((xoffset+2))"
+    tput cuf $xoffset
 }
 
 ##
 # Set a prompt for user input. Can be updated simply with upd_status
 set_prompt() {
-  set_status "$1" ' :: '
-  put_cursor_after_prompt
+    set_status "$1" ' :: '
+    put_cursor_after_prompt
 }
 
 print_diff() {
@@ -158,7 +159,7 @@ print_diff() {
 # Resets global variables related to text manipulation and removes those
 # special characters from VBUF if it's not empty.
 disable_colors() {
-    DIFF_OPTS=''
+    DIFF_OPTS=''; FNCOL=1
     if [ -n "$VBUF" ]; then
         VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
     fi
@@ -221,7 +222,7 @@ args_err() {
 # The function parses arguments in such way that a user will be notified
 # about all wrong options. Also the behavior should be consistent. If there
 # is one or more -h switches - print help once, even if there are more options
-# like in "./simon -xxyzhh". Note that in the example command illegal option
+# like in "./simon -xxyzhh". Note that in the command example illegal option
 # "-x" appeared twice, but the warning should be outputted only once. If
 # user do not want to see any regular messages in non-interactive mode
 # (no "-v"), no messages should be printed, even errors if "-q" was specified.
@@ -237,7 +238,7 @@ args() {
             v ) v=1;;
             q ) q=1;;
             d ) d=1;;
-            \? ) args_stash "\\n${B}Unknown option: -$OPTARG$RST";;
+            \? ) args_stash "\n${B}Unknown option: -$OPTARG$RST";;
             : ) printf 'Option -%s requires an argument\n' "$OPTARG" >&2
                 exit 1
                 # TODO: this doesn't honor any options above: delay processing
@@ -249,9 +250,9 @@ args() {
     if [ -z "$a" ]; then
         FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
         [ -n "$h" ] && print_help
-        [ -n "$v" ] && args_stash "\\n${B}WARN: -v has no impact$RST"
-        [ -n "$q" ] && args_stash "\\n${B}WARN: -q has no impact$RST"
-        [ -n "$d" ] && args_stash "\\n${B}WARN: -d has no impact$RST"
+        [ -n "$v" ] && args_stash "\n${B}WARN: -v has no impact$RST"
+        [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
+        [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
     else
         FAUTO=1
         [ -n "$v" ] && FVERB=1 || FVERB=0
@@ -292,12 +293,12 @@ args() {
         * )
             # check if a path for a snapshot contains an existing directory
             if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
-                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST"
+                TMP="${R}No such directory: $(dirname $SNAPSHOT_OLD)$RST"
                 args_err "$TMP"
                 exit 1
             fi
             # check if a path is not a directory
-            if [ -d "$SNAPSHOT_OLD"are ]; then
+            if [ -d "$SNAPSHOT_OLD" ]; then
                 TMP="${R}You provided a path to an existing directory;"
                 TMP="$TMP not to a snapshot$RST"
                 args_err "$TMP"
@@ -327,7 +328,7 @@ check_deps() {
     set_status 'Checking dependencies...'
     SED="$(command -v sed)"
     # shellcheck disable=SC2181
-    if [ 0 -ne $? ] ; then
+    if [ 0 -ne $? ]; then
         upd_status 'ERR!'
         put_descr "${R}The script requires ${BLD}sed$RST"
         exit 1
@@ -336,7 +337,7 @@ check_deps() {
     for dlder in 'wget' 'curl' ; do
         DOWNLOADER="$(command -v "$dlder")"
         # shellcheck disable=SC2181
-        if [ 0 -eq $? ] ; then
+        if [ 0 -eq $? ]; then
             upd_status 'OK'
             return 0
         fi
@@ -390,7 +391,7 @@ download_page()
 # $2 (required) - a path to store the file
 ###############################################################################
 file_downloader() {
-    if [ 2 -ne $# ] ; then
+    if [ 2 -ne $# ]; then
         upd_status 'ERR!' 'yes'
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
@@ -411,7 +412,7 @@ file_downloader() {
             exit 1
     esac
     # clean up in case of downloading failure
-    if [ 0 -eq $rc ] ; then
+    if [ 0 -eq $rc ]; then
         upd_status 'OK' 'yes'
     else
         upd_status 'ERR!' 'yes'
@@ -427,7 +428,7 @@ file_downloader() {
 ###############################################################################
 ask_overwrite() {
     local yn
-    while true ; do
+    while true; do
         if [ 0 = "$FAUTO" ]; then
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
             read -r yn
@@ -435,7 +436,7 @@ ask_overwrite() {
             if [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ]; then
                 printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
                 print_diff
-                printf '%s-----END DIFF BLOCK-----%s\n' "$B" "$RST"
+                printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
             fi
             set_status 'Overriding the old snapshot...'
             yn='y'
@@ -468,11 +469,11 @@ ask_overwrite() {
 ###############################################################################
 fetch_and_download() {
     local links
+    set_status 'Preparing a list of images...'
     links=$(printf -- '%s' "$1" \
         | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
         | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
-    set_status 'Preparing a list of images...'
-    if [ -n "$links" ] ; then
+    if [ -n "$links" ]; then
         local fname link yn xoffset
         upd_status 'OK'
         # show a list of fetched link(s)
@@ -481,19 +482,19 @@ fetch_and_download() {
         done
         # loop through the links again to download them
         for link in $links; do
-            fname=$(basename "$link")
+            fname="$(basename "$link")"
             # ask if a user wishes to save the file from the fetched link
             while true; do
                 if [ 1 = "$FAUTO" ]; then
                     set_status "Downloading $B$fname$RST..."
                     yn='y'
                 else
-                    set_prompt "Save $Y$fname$RST? [y/n] "
+                    set_prompt "Save $B$fname$RST? [y/n] "
                     read -r yn
                 fi
                 case "$yn" in
                     [Yy]* )
-                        file_downloader "${SITE}${link}" "$IMAGES_DIR$fname"
+                        file_downloader "$SITE$link" "$IMAGES_DIR$fname"
                         break;;
                     [Nn]* )
                         upd_status ' -- ' "$yn"
@@ -519,14 +520,13 @@ find_diffs() {
     local diffs
     set_status 'Comparing the snapshots...'
     diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff -- "$SNAPSHOT_OLD" -)
-    if [ -n "$diffs" ]
-        then
-            upd_status 'WARN'
-            put_descr 'Snapshots are different'
-            fetch_and_download "$diffs"
-        else
-            upd_status 'OK'
-            put_descr 'Snapshots are the same'
+    if [ -n "$diffs" ]; then
+        upd_status 'WARN'
+        put_descr 'Snapshots are different'
+        fetch_and_download "$diffs"
+    else
+        upd_status 'OK'
+        put_descr 'Snapshots are the same'
     fi
 }
 
@@ -539,9 +539,9 @@ main() {
     download_page
     # Is there simon.old file?
     set_status 'Looking for an old snapshot...'
-    if [ -f "$SNAPSHOT_OLD" ] ; then
+    if [ -f "$SNAPSHOT_OLD" ]; then
         upd_status 'OK'
-        put_descr "${G}Snapshot is found:$RST $Y$SNAPSHOT_OLD$RST"
+        put_descr "${G}Snapshot is found:$RST $B$SNAPSHOT_OLD$RST"
         find_diffs
     else
         upd_status 'INFO'
