@@ -129,11 +129,37 @@ simon -avd
 Now, last but perhaps not least, it makes sense to *disable* the use of
 colored output with `-c` option.
 
-#### Set up a cron-job
+#### Set up a Cron-Job
 
-todo
+You have to be familiar with cron daemons configuration. I'll remind some
+steps here, assuming *Vixie Cron* or its fork is installed.
 
-#### Set up a systemd timer
+To run the script once every two days, edit crontab for your user with a
+command like `crontab -e`. You can define `SHELL` and `PATH` variables there.
+If you want color output, define `TERM` variable. Consider the following
+example:
+
+```shell
+SHELL=/bin/bash
+TERM=xterm-256color
+CHECK_SITE=/tmp/simon/simon.sh -avd -i /tmp -s /tmp/simon.old
+
+* * */2 * * $CHECK_SITE >>/tmp/simon.log 2>&1
+```
+
+Output redirection is used to send all output to a log file.
+
+To disable the cron-job, comment it out in the crontab:
+
+```shell
+#* * */2 * * $CHECK_SITE >>/tmp/simon.log 2>&1
+```
+
+Note: the instruction above implies that your system is running continuously.
+Don't forget to test the cron-job by making it fire 1-2 minutes into the
+future.
+
+#### Set up a Systemd Timer
 
 todo
 
