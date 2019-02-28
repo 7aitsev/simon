@@ -13,13 +13,15 @@ DOWNLOADER=''
 WGET_OPTS='--no-config --quiet'
 CURL_OPTS='--disable --silent --fail'
 DIFF_OPTS='--color=always'
-RST="$(tput sgr0)"
-R="$(tput setaf 1)"
-G="$(tput setaf 2)"
-B="$(tput setaf 4)"
-BLD="$(tput bold)"
+if [ -n "$TERM" ]; then
+    RST="$(tput sgr0)"
+    R="$(tput setaf 1)"
+    G="$(tput setaf 2)"
+    B="$(tput setaf 4)"
+    BLD="$(tput bold)"
+fi
 STATUS_LAST_MSG=''
-FWERR=''; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=0
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''
 TMP=''
 VBUF=''
 
@@ -245,7 +247,7 @@ args() {
         esac
     done
 
-    [ -n "$c" ] && disable_colors
+    [ -n "$c" ] && disable_colors || FNCOL=0
 
     if [ -z "$a" ]; then
         FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
@@ -276,7 +278,7 @@ args() {
             args_out "${B}WARN: -h has no effect in non-interactive mode$RST"
     fi
 
-    # check if a directory for images exists
+    # check if a directory for images exists (use the default if -i is empty)
     if ! [ -d "${IMAGES_DIR:=./}" ]; then
         args_err "${R}No such directory: $IMAGES_DIR$RST"
         exit 1
@@ -333,12 +335,37 @@ check_deps() {
         put_descr "${R}The script requires ${BLD}sed$RST"
         exit 1
     fi
+    DIFF="$(command -v diff)"
+    # shellcheck disable=SC2181
+    if [ 0 -ne $? ]; then
+        upd_status 'ERR!'
+        put_descr "$R${BLD}diff$RST$R is required but not found$RST"
+        exit 1
+    elif [ 0 = "$FNCOL" ]; then
+        # there is no --color option in diff ver < 3.4
+        local tv cv rv
+        tv='3.4'
+        cv="$(eval "$DIFF" --version | head -1 | tr -d '[:alpha:] ()')"
+        if [ "$tv" != "$cv" ]; then
+            rv="$(printf '%s\n%s' "$tv" "$cv" \
+                | sort --version-sort | head -1)"
+            if [ "$cv" = "$rv" ]; then
+                upd_status "INFO"
+                TMP="${BLD}diff${RST} doesn't support color output prior to"
+                TMP="$TMP ver. $tv"
+                put_descr "$TMP"
+                FWERR=1
+                DIFF_OPTS=''
+            fi
+        fi
+    fi
     local dlder
     for dlder in 'wget' 'curl' ; do
         DOWNLOADER="$(command -v "$dlder")"
         # shellcheck disable=SC2181
         if [ 0 -eq $? ]; then
-            upd_status 'OK'
+            [ 0 = "$FWERR" ] && upd_status 'OK'
+            FWERR=0
             return 0
         fi
     done
@@ -372,7 +399,7 @@ download_page()
 
     if [ 0 -ne "$rc" ]; then
         upd_status 'ERR!'
-        TMP="${R}Unexpected error: ${BLD}$(basename "$DOWNLOADER")$RST$R"
+        TMP="${R}Cannot reach the site: ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returned code $BLD$rc$RST"
         put_descr "$TMP"
         exit 1
@@ -416,7 +443,8 @@ file_downloader() {
         upd_status 'OK' 'yes'
     else
         upd_status 'ERR!' 'yes'
-        TMP="${R}Unexpected error: ${BLD}$(basename "$DOWNLOADER")$RST$R"
+        TMP="${R}Failed to download $BLD$(basename "$1")$RST$R:"
+        TMP="$TMP ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returns code $BLD$rc$RST"
         put_descr "$TMP"
         rm -f "$2"
@@ -494,7 +522,7 @@ fetch_and_download() {
                 fi
                 case "$yn" in
                     [Yy]* )
-                        file_downloader "$SITE$link" "$IMAGES_DIR$fname"
+                        file_downloader "$SITE$link" "$IMAGES_DIR/$fname"
                         break;;
                     [Nn]* )
                         upd_status ' -- ' "$yn"
