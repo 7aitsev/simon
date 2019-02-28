@@ -74,7 +74,7 @@ vbuf_replace_last() {
 set_status() {
     if [ 1 = "$FAUTO" ]; then
         [ 1 = "$FVERB" ] && printf -- ':: %s ' "$1"
-        return
+        return 0
     fi
     local status msg
     [ -z "$2" ] && status='    ' || status="$2"
@@ -109,7 +109,7 @@ upd_status() {
     esac
     if [ 1 = "$FAUTO" ]; then
         [ 1 = "$FVERB" ] && printf '%s\n' "$st"
-        return
+        return 0
     fi
     msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
 
@@ -125,7 +125,7 @@ put_descr() {
         else
             [ 1 = "$FVERB" ] && printf '%s\n' "$1"
         fi
-        return
+        return 0
     fi
     vbuf_append "$(printf -- '\n       %s' "$1")"
 }
@@ -203,7 +203,7 @@ args_stash() {
 # every line was prepended with leading \n. So it removes the first empty
 # line prior to printing.
 args_unstash() {
-    [ 0 = "$FVERB" ] && return
+    [ 0 = "$FVERB" ] && return 0
     local lc
     lc=$(printf -- '%s' "$VBUF" | wc -l)
     printf -- '%s' "$VBUF" | tail -n "$lc" | uniq
@@ -211,12 +211,12 @@ args_unstash() {
 }
 
 args_out() {
-    [ 0 = "$FVERB" ] && return
+    [ 0 = "$FVERB" ] && return 0
     printf -- '%b\n' "$1"
 }
 
 args_err() {
-    [ 1 = "$FNERR" ] && return
+    [ 1 = "$FNERR" ] && return 0
     printf -- '%b\n' "$1" >&2
 }
 
