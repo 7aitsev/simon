@@ -40,8 +40,9 @@ cd simon-master
 
 The script should run fine on a GNU/Linux distributive in any POSIX®-compliant
 shells like BASH, Zsh or DASH. Either `curl` or `wget` required to be
-installed as well as `sed`. If you are not sure whether or not these
-utilities are installed, the script will generate descriptive messages
+installed as well as `sed`. The script additionally requires `diff` utility
+(versions 3.4 or later are recommended). If you are not sure whether or not
+these utilities are installed, the script will generate descriptive messages
 about which of the programs you missed.
 
 ### Installing
@@ -129,39 +130,10 @@ simon -avd
 Now, last but perhaps not least, it makes sense to *disable* the use of
 colored output with `-c` option.
 
-#### Set up a Cron-Job
+See the [Wiki page][] for a brief guide on how to use the mode to set up a
+cron-job or systemd timer.
 
-You have to be familiar with cron daemons configuration. I'll remind some
-steps here, assuming *Vixie Cron* or its fork is installed.
-
-To run the script once every two days, edit crontab for your user with a
-command like `crontab -e`. You can define `SHELL` and `PATH` variables there.
-If you want color output, define `TERM` variable. Consider the following
-example:
-
-```shell
-SHELL=/bin/bash
-TERM=xterm-256color
-CHECK_SITE=/tmp/simon/simon.sh -avd -i /tmp -s /tmp/simon.old
-
-* * */2 * * $CHECK_SITE >>/tmp/simon.log 2>&1
-```
-
-Output redirection is used to send all output to a log file.
-
-To disable the cron-job, comment it out in the crontab:
-
-```shell
-#* * */2 * * $CHECK_SITE >>/tmp/simon.log 2>&1
-```
-
-Note: the instruction above implies that your system is running continuously.
-Don't forget to test the cron-job by making it fire 1-2 minutes into the
-future.
-
-#### Set up a Systemd Timer
-
-todo
+[Wiki page]: https://github.com/7aitsev/simon/wiki/Set-up-the-Script-to-Run-Periodically
 
 ## Contributing
 
