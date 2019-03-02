@@ -7,7 +7,9 @@
 SITE='http://simonstalenhag.se/'
 SNAPSHOT_NEW=''
 IMAGES_DIR=''
-SNAPSHOT_OLD='simon.old'
+SNAPSHOT_OLD=''
+SNAPSHOT_OLD_DEF=''
+XDG_CACHE_HOME="${XDG_CACHE_HOME:="$HOME/.cache"}"
 SED=''
 DOWNLOADER=''
 WGET_OPTS='--no-config --quiet'
@@ -221,6 +223,56 @@ args_err() {
 }
 
 ##
+# Checks if XDG_CACHE_HOME/simon directory exists. If not, the function
+# tries to create the directory path. Sets SNAPSHOT_OLD_DEF.
+args_gen_cache_path() {
+    SNAPSHOT_OLD_DEF="$XDG_CACHE_HOME/simon"
+    if ! [ -d "$SNAPSHOT_OLD_DEF" ]; then
+        if ! mkdir -p "$SNAPSHOT_OLD_DEF" 2>/dev/null; then
+            args_err "${R}Cannot create directory: $BLD$SNAPSHOT_OLD_DEF$RST"
+            exit 1
+        fi
+    fi
+    SNAPSHOT_OLD_DEF="$SNAPSHOT_OLD_DEF/simon.old"
+}
+
+##
+# Makes checks on paths in IMAGES_DIR and SNAPSHOT_OLD to prevent
+# the most obvious user input errors.
+args_set_paths() {
+    # check if a directory for images exists (use the default if -i is empty)
+    if ! [ -d "${IMAGES_DIR:="./"}" ]; then
+        args_err "${R}No such directory: $IMAGES_DIR$RST"
+        exit 1
+    fi
+    args_gen_cache_path
+    # the path must be valid
+    case "${SNAPSHOT_OLD:="$SNAPSHOT_OLD_DEF"}" in
+        # a given path has to contain a file name part
+        */ | . | \.\. | */\. | */\.\. )
+            TMP="${R}Specify a path to a ${BLD}file$RST$R"
+            TMP="$TMP for an old snapshot$RST"
+            args_err "$TMP"
+            exit 1
+            ;;
+        * )
+            # check if a path for a snapshot contains an existing directory
+            if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
+                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST"
+                args_err "$TMP"
+                exit 1
+            fi
+            # check if a path is not a directory
+            if [ -d "$SNAPSHOT_OLD" ]; then
+                TMP="${R}You provided a path to an existing directory;"
+                TMP="$TMP not to a snapshot$RST"
+                args_err "$TMP"
+                exit 1
+            fi
+    esac
+}
+
+##
 # The function parses arguments in such way that a user will be notified
 # about all wrong options. Also the behavior should be consistent. If there
 # is one or more -h switches - print help once, even if there are more options
@@ -278,35 +330,7 @@ args() {
             args_out "${B}WARN: -h has no effect in non-interactive mode$RST"
     fi
 
-    # check if a directory for images exists (use the default if -i is empty)
-    if ! [ -d "${IMAGES_DIR:=./}" ]; then
-        args_err "${R}No such directory: $IMAGES_DIR$RST"
-        exit 1
-    fi
-    # the path must be valid
-    case "${SNAPSHOT_OLD:=./simon.old}" in
-        # a given path has to contain a file name part
-        */ | . | \.\. | */\. | */\.\.)
-            TMP="${R}Specify a path to a ${BLD}file$RST$R"
-            TMP="$TMP for an old snapshot$RST"
-            args_err "$TMP"
-            exit 1
-            ;;
-        * )
-            # check if a path for a snapshot contains an existing directory
-            if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
-                TMP="${R}No such directory: $(dirname $SNAPSHOT_OLD)$RST"
-                args_err "$TMP"
-                exit 1
-            fi
-            # check if a path is not a directory
-            if [ -d "$SNAPSHOT_OLD" ]; then
-                TMP="${R}You provided a path to an existing directory;"
-                TMP="$TMP not to a snapshot$RST"
-                args_err "$TMP"
-                exit 1
-            fi
-    esac
+    args_set_paths
 
     # notify about warnings if VBUF not empty
     if [ 0 = "$FAUTO" ] && [ -n "$VBUF" ]; then
