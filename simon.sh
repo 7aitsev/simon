@@ -1,31 +1,46 @@
 #!/bin/sh
-# shellcheck disable=SC2039
+# shellcheck disable=SC2039,SC2181
 
 ###############################################################################
 # Global vals and vars
 ###############################################################################
 SITE='http://simonstalenhag.se/'
+
+# Holds a processed content of the site's home page
 SNAPSHOT_NEW=''
+
+# Points to a desired folder for images to be download
+# (default is pwd, i.e. the current directory: "./")
 IMAGES_DIR=''
+# A path to the file that stores a snapshot of the site
 SNAPSHOT_OLD=''
+# Use this if a user doesn't specify a path (see args_gen_cache_path())
 SNAPSHOT_OLD_DEF=''
+# Initialize the variable from XDG Base Directory Specification
 XDG_CACHE_HOME="${XDG_CACHE_HOME:="$HOME/.cache"}"
+
+# Full paths for the required utilities
 SED=''
+DIFF=''
 DOWNLOADER=''
+# Options for the above utilities
 WGET_OPTS='--no-config --quiet'
 CURL_OPTS='--disable --silent --fail'
-DIFF_OPTS='--color=always'
-if [ -n "$TERM" ]; then
-    RST="$(tput sgr0)"
-    R="$(tput setaf 1)"
-    G="$(tput setaf 2)"
-    B="$(tput setaf 4)"
-    BLD="$(tput bold)"
-fi
-STATUS_LAST_MSG=''
-FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''
-TMP=''
+DIFF_OPTS='--color=always' # it's empty when FNCOL=1
+
+# Text formatting: reset, red, green, blue, bold
+RST=''; R=''; G=''; B=''; BLD=''
+
+# Flags
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FTRIV=''
+
+# A text buffer needed to pretty-printing
 VBUF=''
+# Utility variable for pretty-printing
+STATUS_LAST_MSG=''
+
+# Utility variable
+TMP=''
 
 ###############################################################################
 # Helper functions for pretty-printing
@@ -92,8 +107,8 @@ set_status() {
 # Updates the status in a line which is obtained from a VBUF
 #
 # $1 (required) - a type: one of OK, ERR!, WARN, INFO, or a custom type.
-# $2 (optional) - a string which can be appened to a message (can be empty).
-#                 the sring is needed for saving user input after a prompt.
+# $2 (optional) - a string which can be appended to a message (can be empty).
+#                 the string is needed for saving user input after a prompt.
 upd_status() {
     if [ -z "$1" ]; then
         put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided$RST"
@@ -157,6 +172,37 @@ set_prompt() {
 print_diff() {
     printf -- '%s\n' "$SNAPSHOT_NEW" \
        | eval diff --unified "$DIFF_OPTS" -- "$SNAPSHOT_OLD" -
+}
+
+##
+# The function tries to figure out whether a terminal has required
+# capabilities support by testing only "color" feature. It should be safe
+# to assume that if the terminal doesn't have such capability then all the
+# other are also missing. If this is the case just switch to simplified output
+# mode (FTRIV), where no capabilities are required.
+check_term() {
+    FNCOL=1; FTRIV=1
+    if [ -z "$TERM" ]; then
+        printf 'Environment variable TERM is empty: '
+    else
+        local colors
+        colors="$(tput colors 2>/dev/null)"
+        if [ 0 != $? ]; then
+            printf -- 'Terminal "%s" isn'\''t supported: ' "$TERM"
+        elif [ -1 != "$colors" ]; then
+            RST=$(tput sgr0)
+            R=$(tput setaf 1)
+            G=$(tput setaf 2)
+            B=$(tput setaf 4)
+            BLD=$(tput bold)
+            FNCOL=''; FTRIV=''
+            return 0
+        else
+            printf -- 'Terminal "%s" lacks color support: ' "$TERM"
+            # assume also the terminal lacks other capabilities
+        fi
+    fi
+    printf 'pretty-printing is disabled.\n'
 }
 
 ##
@@ -359,14 +405,12 @@ args() {
 check_deps() {
     set_status 'Checking dependencies...'
     SED="$(command -v sed)"
-    # shellcheck disable=SC2181
     if [ 0 -ne $? ]; then
         upd_status 'ERR!'
         put_descr "${R}The script requires ${BLD}sed$RST"
         exit 1
     fi
     DIFF="$(command -v diff)"
-    # shellcheck disable=SC2181
     if [ 0 -ne $? ]; then
         upd_status 'ERR!'
         put_descr "$R${BLD}diff$RST$R is required but not found$RST"
@@ -392,7 +436,6 @@ check_deps() {
     local dlder
     for dlder in 'wget' 'curl' ; do
         DOWNLOADER="$(command -v "$dlder")"
-        # shellcheck disable=SC2181
         if [ 0 -eq $? ]; then
             [ 0 = "$FWERR" ] && upd_status 'OK'
             FWERR=0
@@ -592,6 +635,7 @@ find_diffs() {
 # Entry point
 ###############################################################################
 main() {
+    check_term
     args "$@"
     check_deps
     download_page
