@@ -293,13 +293,19 @@ args() {
             q ) q=1;;
             d ) d=1;;
             \? ) args_stash "\n${B}Unknown option: -$OPTARG$RST";;
-            : ) printf 'Option -%s requires an argument\n' "$OPTARG" >&2
-                exit 1
-                # TODO: this doesn't honor any options above: delay processing
+            : )
+                TMP="\n${R}Option $BLD-$OPTARG$RST$R requires an argument$RST"
+                args_stash "$TMP"
+                FWERR=1
         esac
     done
 
     [ -n "$c" ] && disable_colors || FNCOL=0
+
+    if [ 1 = "$FWERR" ]; then
+      args_unstash
+      exit 1
+    fi
 
     if [ -z "$a" ]; then
         FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
@@ -578,7 +584,7 @@ find_diffs() {
         fetch_and_download "$diffs"
     else
         upd_status 'OK'
-        put_descr 'Snapshots are the same'
+        put_descr "${G}Snapshots are the same$RST"
     fi
 }
 
