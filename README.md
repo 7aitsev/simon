@@ -21,20 +21,17 @@ page of the site and tries to download all images it's able to find.
 
 ## Getting Started
 
-Clone the project into a directory of your choice and `cd` to `simon` folder:
+Go to [Releases][] page and download a ZIP archive from
+[the latest release][]. Extract the archive, e.g. with `unzip` tool as shown
+below:
 
 ```shell
-git clone "https://github.com/7aitsev/simon.git"
-cd simon
+unzip simon-1.0.0.zip
+cd simon-1.0.0
 ```
 
-or find on the page "Clone or download" button, press on it and download
-a ZIP archive. Extract the archive with `unzip` tool as shown below:
-
-```shell
-unzip simon-master.zip
-cd simon-master
-```
+[Releases]: https://github.com/7aitsev/simon/releases
+[the latest release]: https://github.com/7aitsev/simon/releases/latest
 
 ### Prerequisites
 
