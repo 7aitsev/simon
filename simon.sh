@@ -89,8 +89,8 @@ vbuf_replace_last() {
 # $2 - defines the status: usually it's an empty placeholder, so if the
 #      parameter is empty, then the placeholder is filled with four spaces
 set_status() {
-    if [ 1 = "$FAUTO" ]; then
-        [ 1 = "$FVERB" ] && printf -- ':: %s ' "$1"
+    if [ 1 = "$FTRIV" ]; then
+        [ 1 = "$FVERB" ] && printf -- ':: %s' "$1"
         return 0
     fi
     local status msg
@@ -124,8 +124,8 @@ upd_status() {
         INFO )  st="${BLD}INFO$RST";;
         * )     st="$1"
     esac
-    if [ 1 = "$FAUTO" ]; then
-        [ 1 = "$FVERB" ] && printf '%s\n' "$st"
+    if [ 1 = "$FTRIV" ]; then
+        [ 1 = "$FVERB" ] && printf ' %s\n' "$st"
         return 0
     fi
     msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
@@ -136,7 +136,7 @@ upd_status() {
 ##
 # Prints $1 with indentation after a status line
 put_descr() {
-    if [ 1 = "$FAUTO" ]; then
+    if [ 1 = "$FTRIV" ]; then
         if [ 1 = "$FWERR" ]; then
             [ 0 = "$FNERR" ] && printf '%s\n' "$1" >&2
         else
@@ -166,12 +166,19 @@ put_cursor_after_prompt() {
 # Set a prompt for user input. Can be updated simply with upd_status
 set_prompt() {
     set_status "$1" ' :: '
-    put_cursor_after_prompt
+    [ 0 = "$FTRIV" ] && put_cursor_after_prompt
 }
 
 print_diff() {
+    [ 1 = "$FTRIV" ] && \
+        printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
+
     printf -- '%s\n' "$SNAPSHOT_NEW" \
        | eval diff --unified "$DIFF_OPTS" -- "$SNAPSHOT_OLD" -
+
+    [ 1 = "$FTRIV" ] && \
+        printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
+
 }
 
 ##
@@ -181,7 +188,7 @@ print_diff() {
 # other are also missing. If this is the case just switch to simplified output
 # mode (FTRIV), where no capabilities are required.
 check_term() {
-    FNCOL=1; FTRIV=1
+    FTRIV=1
     if [ -z "$TERM" ]; then
         printf 'Environment variable TERM is empty: '
     else
@@ -195,7 +202,7 @@ check_term() {
             G=$(tput setaf 2)
             B=$(tput setaf 4)
             BLD=$(tput bold)
-            FNCOL=''; FTRIV=''
+            FTRIV=0
             return 0
         else
             printf -- 'Terminal "%s" lacks color support: ' "$TERM"
@@ -229,6 +236,7 @@ OPTIONS:
   -i dir  - define a directory to store images
   -s path - set a path to store and use an old snapshot
   -c      - disable colors
+  -t      - turn off pretty-printing (interactive mode only)
   -h      - show the help and exit (interactive mode only)
   -v      - verbose output (non-interactive mode only)
   -q      - disable errors (non-interactive mode only)
@@ -327,13 +335,14 @@ args_set_paths() {
 # user do not want to see any regular messages in non-interactive mode
 # (no "-v"), no messages should be printed, even errors if "-q" was specified.
 args() {
-    local a c h v q d opts
-    while getopts ':ai:s:chvqd' opts; do
+    local a c t h v q d opts
+    while getopts ':ai:s:cthvqd' opts; do
         case "$opts" in
             a ) a=1;;
             i ) IMAGES_DIR="$OPTARG";;
             s ) SNAPSHOT_OLD="$OPTARG";;
             c ) c=1;;
+            t ) t=1;;
             h ) h=1;;
             v ) v=1;;
             q ) q=1;;
@@ -346,7 +355,8 @@ args() {
         esac
     done
 
-    [ -n "$c" ] && disable_colors || FNCOL=0
+    [ 1 = "$FTRIV" ] || [ -n "$c" ] && disable_colors || FNCOL=0
+    [ -n "$t" ] && FTRIV=1
 
     if [ 1 = "$FWERR" ]; then
       args_unstash
@@ -360,10 +370,11 @@ args() {
         [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
         [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
     else
-        FAUTO=1
+        FAUTO=1; FTRIV=1;
         [ -n "$v" ] && FVERB=1 || FVERB=0
         [ -n "$q" ] && FNERR=1 || FNERR=0
         [ -n "$d" ] && FDIFF=1 || FDIFF=0
+
         if [ 1 = "$FVERB" ] && [ 1 = "$FNERR" ]; then
             TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
             TMP="$TMP no sense.\n      Proceeding with the defaults "
@@ -378,8 +389,10 @@ args() {
             FVERB=0; FNERR=0
         fi
         args_unstash
-        [ -n "$h" ] && \
-            args_out "${B}WARN: -h has no effect in non-interactive mode$RST"
+        [ -n "$h" ] && args_out \
+            "${B}WARN: $BLD-h$RST$B has no effect in non-interactive mode$RST"
+        [ -n "$t" ] && args_out \
+            "${B}WARN: $BLD-t$RST$B has no effect in non-interactive mode$RST"
     fi
 
     args_set_paths
@@ -392,7 +405,7 @@ args() {
         [ q = "$q" ] && exit 0
     fi
 
-    if [ 0 = "$FAUTO" ]; then
+    if [ 0 = "$FTRIV" ]; then
         tput smcup
         trap redraw WINCH
         trap cleanup EXIT
@@ -534,30 +547,30 @@ ask_overwrite() {
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
             read -r yn
         else
-            if [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ]; then
-                printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
-                print_diff
-                printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
-            fi
+            [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ] && print_diff
             set_status 'Overriding the old snapshot...'
             yn='y'
         fi
         case "$yn" in
             [Yy]* )
                 printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-                upd_status 'WARN' "$yn"
+                [ 0 = "$FTRIV" ] && upd_status 'WARN' "$yn"
                 put_descr "${B}Snapshot overwritten$RST"
                 break;;
             [Nn]* )
-                upd_status 'INFO' "$yn"
+                [ 0 = "$FTRIV" ] && upd_status 'INFO' "$yn"
                 put_descr "${BLD}Snapshot untouched$RST"
                 break;;
             [Dd]* )
-                upd_status ' <> ' "$yn"
-                print_diff | less -R
+                if [ 0 = "$FTRIV" ]; then
+                    upd_status ' <> ' "$yn"
+                    print_diff | less -R
+                else
+                    print_diff
+                fi
                 ;;
             * )
-                upd_status ' :: ' "$yn"
+                [ 0 = "$FTRIV" ] && upd_status ' :: ' "$yn"
                 put_descr 'Please answer yes or no'
         esac
     done
@@ -598,11 +611,11 @@ fetch_and_download() {
                         file_downloader "$SITE$link" "$IMAGES_DIR/$fname"
                         break;;
                     [Nn]* )
-                        upd_status ' -- ' "$yn"
+                        [ 0 = "$FTRIV" ] && upd_status ' -- ' "$yn"
                         put_descr 'Skipping...'
                         break;;
                     * )
-                        upd_status ' :: ' "$yn"
+                        [ 0 = "$FTRIV" ] && upd_status ' :: ' "$yn"
                         put_descr 'Please answer yes or no'
                 esac
             done
