@@ -74,19 +74,27 @@ The script keeps a snapshot of the site in order to compare a new snapshot
 with the old one. The snapshot is stored as SNAPSHOT_OLD, but you can
 specify another path to the file:
 
-```
+```shell
 simon -s ~/.cache/simon/simon.old
 ```
 
 You may want to set a directory where all downloaded images will be stored:
 
-```
+```shell
 simon -i ~/Pictures/Simon
 ```
 
-Use `-c` option to disable color output and text formatting.
+Use `-c` option to disable color output and text formatting. Note that if
+your terminal doesn't support colors, the script assumes that some other
+capabilities are not available as well. This causes turning off
+pretty-printing, i.e. use of simplified output and lack of colors.
 
-If this is the mode you want to use regulary and don't want to provide
+### Interactive Mode
+
+As previously mentioned, this is the default mode. You don't need to provide
+any special options here.
+
+If this is the mode you want to use regulary and don't want to specify
 `-i` and `-s` options with their arguments, create an alias as the following:
 
 ```shell
@@ -96,10 +104,8 @@ alias simon='simon -i <your_dir> -s <your_path>'
 Refer to your shell documentation to find out where the alias should be
 placed in order to use it not only for a current shell session.
 
-### Interactive Mode
-
-As previously mentioned, this is the default mode. You don't need to provide
-any special options here.
+Use `-t` option if the pretty-printing is not desired, or the feature causes
+problems.
 
 It may be helpful to use `-h` option to show a short summary of all the
 options.
