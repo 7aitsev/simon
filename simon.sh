@@ -82,6 +82,35 @@ vbuf_replace_last() {
 }
 
 ##
+# Append $1 to VBUF (hide output). Call args_unstash to print out all
+# stashed messages.
+args_stash() {
+    VBUF="$VBUF$(printf -- '%b' "$1")"
+}
+
+##
+# Output content of VBUF and zero it out. The function assumes that
+# every line was prepended with leading \n. So it removes the first empty
+# line prior to printing.
+args_unstash() {
+    [ 0 = "$FVERB" ] && return 0
+    local lc
+    lc=$(printf -- '%s' "$VBUF" | wc -l)
+    printf -- '%s' "$VBUF" | tail -n "$lc" | uniq
+    VBUF=''
+}
+
+args_out() {
+    [ 0 = "$FVERB" ] && return 0
+    printf -- '%b\n' "$1"
+}
+
+args_err() {
+    [ 1 = "$FNERR" ] && return 0
+    printf -- '%b\n' "$1" >&2
+}
+
+##
 # Formats a line with a status and a given message and appends
 # the line to VBUF.
 #
@@ -114,7 +143,7 @@ upd_status() {
         put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided$RST"
         exit 1
     fi
-    [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
+    [ 0 = "$FAUTO" ] && [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
     local msg st
     FWERR=0
     case "$1" in
@@ -174,7 +203,7 @@ print_diff() {
         printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
 
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | eval "$DIFF --unified \"$DIFF_OPTS\" -- \"$SNAPSHOT_OLD\" -"
+       | eval "$DIFF --unified $DIFF_OPTS -- \"$SNAPSHOT_OLD\" -"
 
     [ 1 = "$FTRIV" ] && \
         printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
@@ -190,12 +219,12 @@ print_diff() {
 check_term() {
     FTRIV=1
     if [ -z "$TERM" ]; then
-        printf 'Environment variable TERM is empty: '
+        args_out 'Environment variable TERM is empty'
     else
         local colors
         colors="$(tput colors 2>/dev/null)"
         if [ 0 != $? ]; then
-            printf -- 'Terminal "%s" isn'\''t supported: ' "$TERM"
+            args_out "Terminal \"%s\" isn't supported"
         elif [ -1 != "$colors" ]; then
             RST=$(tput sgr0)
             R=$(tput setaf 1)
@@ -205,11 +234,10 @@ check_term() {
             FTRIV=0
             return 0
         else
-            printf -- 'Terminal "%s" lacks color support: ' "$TERM"
+            args_out "Terminal \"$TERM\" lacks color support"
             # assume also the terminal lacks other capabilities
         fi
     fi
-    printf 'pretty-printing is disabled.\n'
 }
 
 ##
@@ -221,6 +249,18 @@ disable_colors() {
         VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
     fi
     RST=''; R=''; G=''; B=''; BLD=''
+}
+
+##
+# The function is used in conjuction with upd_status to exlude an execution
+# of the latter function after prompts
+# FTRIV | FAUTO | Update status
+# 0     | 0     | 1
+# 0     | 1     | Illegal
+# 1     | 0     | 0
+# 1     | 1     | 1
+not_t1a0() {
+    [ 1 = "$FTRIV" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
 }
 
 ###############################################################################
@@ -243,35 +283,6 @@ OPTIONS:
   -d      - print diff (only with -v in non-interactive mode)
 "
     exit 0
-}
-
-##
-# Append $1 to VBUF (hide output). Call args_unstash to print out all
-# stashed messages.
-args_stash() {
-    VBUF="$VBUF$(printf -- '%b' "$1")"
-}
-
-##
-# Output content of VBUF and zero it out. The function assumes that
-# every line was prepended with leading \n. So it removes the first empty
-# line prior to printing.
-args_unstash() {
-    [ 0 = "$FVERB" ] && return 0
-    local lc
-    lc=$(printf -- '%s' "$VBUF" | wc -l)
-    printf -- '%s' "$VBUF" | tail -n "$lc" | uniq
-    VBUF=''
-}
-
-args_out() {
-    [ 0 = "$FVERB" ] && return 0
-    printf -- '%b\n' "$1"
-}
-
-args_err() {
-    [ 1 = "$FNERR" ] && return 0
-    printf -- '%b\n' "$1" >&2
 }
 
 ##
@@ -333,6 +344,7 @@ args_set_paths() {
 # user do not want to see any regular messages in non-interactive mode
 # (no "-v"), no messages should be printed, even errors if "-q" was specified.
 args() {
+    check_term
     local a c t h v q d opts
     while getopts ':ai:s:cthvqd' opts; do
         case "$opts" in
@@ -367,6 +379,14 @@ args() {
         [ -n "$v" ] && args_stash "\n${B}WARN: -v has no impact$RST"
         [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
         [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
+
+        # notify about warnings if VBUF not empty
+        if [ -n "$VBUF" ]; then
+            args_unstash
+            printf '\nEnter "q" to leave or any other key to continue... '
+            read -r q
+            [ q = "$q" ] && exit 0
+        fi
     else
         FAUTO=1; FTRIV=1;
         [ -n "$v" ] && FVERB=1 || FVERB=0
@@ -394,14 +414,6 @@ args() {
     fi
 
     args_set_paths
-
-    # notify about warnings if VBUF not empty
-    if [ 0 = "$FAUTO" ] && [ -n "$VBUF" ]; then
-        args_unstash
-        printf '\nEnter "q" to leave or any other key to continue... '
-        read -r q
-        [ q = "$q" ] && exit 0
-    fi
 
     if [ 0 = "$FTRIV" ]; then
         tput smcup
@@ -504,7 +516,7 @@ download_page()
 ###############################################################################
 file_downloader() {
     if [ 2 -ne $# ]; then
-        upd_status 'ERR!' 'yes'
+        not_t1a0 && upd_status 'ERR!' 'yes'
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
@@ -519,15 +531,15 @@ file_downloader() {
             rc=$?
             ;;
         * )
-            upd_status 'ERR!' 'yes'
+            not_t1a0 && upd_status 'ERR!' 'yes'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
     # clean up in case of downloading failure
     if [ 0 -eq $rc ]; then
-        upd_status 'OK' 'yes'
+        not_t1a0 && upd_status 'OK' 'yes'
     else
-        upd_status 'ERR!' 'yes'
+        not_t1a0 && upd_status 'ERR!' 'yes'
         TMP="${R}Failed to download $BLD$(basename -- "$1")$RST$R:"
         TMP="$TMP ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returns code $BLD$rc$RST"
@@ -547,29 +559,29 @@ ask_overwrite() {
             read -r yn
         else
             [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ] && print_diff
-            set_status 'Overriding the old snapshot...'
+            set_status 'Overwriting the old snapshot...'
             yn='y'
         fi
         case "$yn" in
             [Yy]* )
                 printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-                [ 0 = "$FTRIV" ] && upd_status 'WARN' "$yn"
-                put_descr "${B}Snapshot overwritten$RST"
+                not_t1a0 && upd_status 'WARN' "$yn"
+                put_descr "${B}Snapshot is overwritten$RST"
                 break;;
             [Nn]* )
-                [ 0 = "$FTRIV" ] && upd_status 'INFO' "$yn"
-                put_descr "${BLD}Snapshot untouched$RST"
+                not_t1a0 && upd_status 'INFO' "$yn"
+                put_descr "${BLD}Snapshot is untouched$RST"
                 break;;
             [Dd]* )
+                not_t1a0 && upd_status ' <> ' "$yn"
                 if [ 0 = "$FTRIV" ]; then
-                    upd_status ' <> ' "$yn"
                     print_diff | less -R
                 else
                     print_diff
                 fi
                 ;;
             * )
-                [ 0 = "$FTRIV" ] && upd_status ' :: ' "$yn"
+                not_t1a0 && upd_status ' :: ' "$yn"
                 put_descr 'Please answer yes or no'
         esac
     done
@@ -648,7 +660,6 @@ find_diffs() {
 # Entry point
 ###############################################################################
 main() {
-    check_term
     args "$@"
     check_deps
     download_page
