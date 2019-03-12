@@ -174,7 +174,7 @@ print_diff() {
         printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
 
     printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | eval diff --unified "$DIFF_OPTS" -- "$SNAPSHOT_OLD" -
+       | eval "$DIFF --unified \"$DIFF_OPTS\" -- \"$SNAPSHOT_OLD\" -"
 
     [ 1 = "$FTRIV" ] && \
         printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
@@ -232,19 +232,17 @@ print_help() {
   simon [OPTIONS]
 
 OPTIONS:
-  -a      - enter non-interactive mode
   -i dir  - define a directory to store images
   -s path - set a path to store and use an old snapshot
   -c      - disable colors
   -t      - turn off pretty-printing (interactive mode only)
   -h      - show the help and exit (interactive mode only)
+  -a      - enter non-interactive mode
   -v      - verbose output (non-interactive mode only)
   -q      - disable errors (non-interactive mode only)
   -d      - print diff (only with -v in non-interactive mode)
 "
-    # a regular error code is 1, but that case should be distinguished
-    # from both a normal execution and a faulty one
-    exit 3
+    exit 0
 }
 
 ##
@@ -282,7 +280,7 @@ args_err() {
 args_gen_cache_path() {
     SNAPSHOT_OLD_DEF="$XDG_CACHE_HOME/simon"
     if ! [ -d "$SNAPSHOT_OLD_DEF" ]; then
-        if ! mkdir -p "$SNAPSHOT_OLD_DEF" 2>/dev/null; then
+        if ! mkdir -p -- "$SNAPSHOT_OLD_DEF" 2>/dev/null; then
             args_err "${R}Cannot create directory: $BLD$SNAPSHOT_OLD_DEF$RST"
             exit 1
         fi
@@ -311,8 +309,8 @@ args_set_paths() {
             ;;
         * )
             # check if a path for a snapshot contains an existing directory
-            if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
-                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST"
+            if ! [ -d "$(dirname -- "$SNAPSHOT_OLD")" ]; then
+                TMP="${R}No such directory: $(dirname -- "$SNAPSHOT_OLD")$RST"
                 args_err "$TMP"
                 exit 1
             fi
@@ -432,7 +430,7 @@ check_deps() {
         # there is no --color option in diff ver < 3.4
         local tv cv rv
         tv='3.4'
-        cv="$(eval "$DIFF" --version | head -1 | tr -d '[:alpha:] ()')"
+        cv="$(eval "$DIFF --version" | head -1 | tr -d '[:alpha:] ()')"
         if [ "$tv" != "$cv" ]; then
             rv="$(printf '%s\n%s' "$tv" "$cv" \
                 | sort --version-sort | head -1)"
@@ -447,7 +445,7 @@ check_deps() {
         fi
     fi
     local dlder
-    for dlder in 'wget' 'curl' ; do
+    for dlder in 'wget' 'curl'; do
         DOWNLOADER="$(command -v "$dlder")"
         if [ 0 -eq $? ]; then
             [ 0 = "$FWERR" ] && upd_status 'OK'
@@ -491,7 +489,8 @@ download_page()
         exit 1
     fi
 
-    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" | "$SED" -e "$site_filter")
+    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" \
+        | eval "$SED -e \"$site_filter\"")
     upd_status 'OK'
 }
 
@@ -512,11 +511,11 @@ file_downloader() {
     local rc
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1"
+            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\""
             rc=$?
             ;;
         *curl )
-            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1"
+            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\""
             rc=$?
             ;;
         * )
@@ -529,11 +528,11 @@ file_downloader() {
         upd_status 'OK' 'yes'
     else
         upd_status 'ERR!' 'yes'
-        TMP="${R}Failed to download $BLD$(basename "$1")$RST$R:"
+        TMP="${R}Failed to download $BLD$(basename -- "$1")$RST$R:"
         TMP="$TMP ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returns code $BLD$rc$RST"
         put_descr "$TMP"
-        rm -f "$2"
+        rm -f -- "$2"
     fi
 }
 
@@ -585,18 +584,18 @@ fetch_and_download() {
     local links
     set_status 'Preparing a list of images...'
     links=$(printf -- '%s' "$1" \
-        | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
-        | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
+        | eval "$SED -n '/^>/p'" | cut -d '"' -f 2 \
+        | eval "$SED -n '/\.[jJ][pP][eE]\?[gG]/p'" | sort -u)
     if [ -n "$links" ]; then
         local fname link yn xoffset
         upd_status 'OK'
         # show a list of fetched link(s)
         for link in $links; do
-            put_descr "$B$(basename "$link")$RST"
+            put_descr "$B$(basename -- "$link")$RST"
         done
         # loop through the links again to download them
         for link in $links; do
-            fname="$(basename "$link")"
+            fname="$(basename -- "$link")"
             # ask if a user wishes to save the file from the fetched link
             while true; do
                 if [ 1 = "$FAUTO" ]; then
@@ -633,7 +632,8 @@ fetch_and_download() {
 find_diffs() {
     local diffs
     set_status 'Comparing the snapshots...'
-    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff -- "$SNAPSHOT_OLD" -)
+    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" \
+        | eval "$DIFF -- \"$SNAPSHOT_OLD\" -")
     if [ -n "$diffs" ]; then
         upd_status 'WARN'
         put_descr 'Snapshots are different'
