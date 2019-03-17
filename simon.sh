@@ -32,7 +32,7 @@ DIFF_OPTS='--color=always' # it's empty when FNCOL=1
 RST=''; R=''; G=''; B=''; BLD=''
 
 # Flags
-FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FTRIV=''
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''
 
 # A text buffer needed to pretty-printing
 VBUF=''
@@ -69,6 +69,15 @@ cup 0 0
 ed
 rmcup
 END
+}
+
+args_set_traps()
+{
+    if [ 0 = "$FSMPL" ]; then
+        tput smcup
+        trap redraw WINCH
+        trap cleanup EXIT
+    fi
 }
 
 vbuf_append() {
@@ -118,7 +127,7 @@ args_err() {
 # $2 - defines the status: usually it's an empty placeholder, so if the
 #      parameter is empty, then the placeholder is filled with four spaces
 set_status() {
-    if [ 1 = "$FTRIV" ]; then
+    if [ 1 = "$FSMPL" ]; then
         [ 1 = "$FVERB" ] && printf -- ':: %s' "$1"
         return 0
     fi
@@ -153,7 +162,7 @@ upd_status() {
         INFO )  st="${BLD}INFO$RST";;
         * )     st="$1"
     esac
-    if [ 1 = "$FTRIV" ]; then
+    if [ 1 = "$FSMPL" ]; then
         [ 1 = "$FVERB" ] && printf ' %s\n' "$st"
         return 0
     fi
@@ -165,7 +174,7 @@ upd_status() {
 ##
 # Prints $1 with indentation after a status line
 put_descr() {
-    if [ 1 = "$FTRIV" ]; then
+    if [ 1 = "$FSMPL" ]; then
         if [ 1 = "$FWERR" ]; then
             [ 0 = "$FNERR" ] && printf '%s\n' "$1" >&2
         else
@@ -195,17 +204,17 @@ put_cursor_after_prompt() {
 # Set a prompt for user input. Can be updated simply with upd_status
 set_prompt() {
     set_status "$1" ' :: '
-    [ 0 = "$FTRIV" ] && put_cursor_after_prompt
+    [ 0 = "$FSMPL" ] && put_cursor_after_prompt
 }
 
 print_diff() {
-    [ 1 = "$FTRIV" ] && \
+    [ 1 = "$FSMPL" ] && \
         printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
 
     printf -- '%s\n' "$SNAPSHOT_NEW" \
        | eval "$DIFF --unified $DIFF_OPTS -- \"$SNAPSHOT_OLD\" -"
 
-    [ 1 = "$FTRIV" ] && \
+    [ 1 = "$FSMPL" ] && \
         printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
 
 }
@@ -215,35 +224,36 @@ print_diff() {
 # capabilities support by testing only "color" feature. It should be safe
 # to assume that if the terminal doesn't have such capability then all the
 # other are also missing. If this is the case just switch to simplified output
-# mode (FTRIV), where no capabilities are required.
-check_term() {
-    FTRIV=1
+# mode (FSMPL), where no advanced capabilities are required.
+args_check_term() {
+    FSMPL=1
     if [ -z "$TERM" ]; then
-        args_out 'Environment variable TERM is empty'
+        args_stash '\nEnvironment variable TERM is empty'
     else
         local colors
         colors="$(tput colors 2>/dev/null)"
         if [ 0 != $? ]; then
-            args_out "Terminal \"%s\" isn't supported"
+            args_stash "\nTerminal \"$TERM\" isn't supported"
         elif [ -1 != "$colors" ]; then
             RST=$(tput sgr0)
             R=$(tput setaf 1)
             G=$(tput setaf 2)
             B=$(tput setaf 4)
             BLD=$(tput bold)
-            FTRIV=0
+            FSMPL=0
             return 0
         else
-            args_out "Terminal \"$TERM\" lacks color support"
+            args_stash "\nTerminal \"$TERM\" lacks color support"
             # assume also the terminal lacks other capabilities
         fi
     fi
+    args_stash ': pretty-printing is disabled'
 }
 
 ##
 # Resets global variables related to text manipulation and removes those
 # special characters from VBUF if it's not empty.
-disable_colors() {
+args_disable_colors() {
     DIFF_OPTS=''; FNCOL=1
     if [ -n "$VBUF" ]; then
         VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
@@ -254,19 +264,19 @@ disable_colors() {
 ##
 # The function is used in conjuction with upd_status to exlude an execution
 # of the latter function after prompts
-# FTRIV | FAUTO | Update status
+# FSMPL | FAUTO | Update status
 # 0     | 0     | 1
 # 0     | 1     | Illegal
 # 1     | 0     | 0
 # 1     | 1     | 1
 not_t1a0() {
-    [ 1 = "$FTRIV" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
+    [ 1 = "$FSMPL" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
 }
 
 ###############################################################################
 # Functions for parsing options and arguments
 ###############################################################################
-print_help() {
+args_print_help() {
     printf '%s\n' \
 "USAGE:
   simon [OPTIONS]
@@ -335,60 +345,70 @@ args_set_paths() {
     esac
 }
 
+args_earg()
+{
+    printf '%sOption %s-%s%s requires an argument%s\n' \
+      "$R" "$BLD" "$1" "$RST$R" "$RST" >&2
+    exit 1
+}
+
+##
+# Notify about warnings if VBUF is not empty and wait for user input
+args_prompt_on_warnings()
+{
+    if [ -n "$VBUF" ]; then
+        args_unstash
+        printf '\nEnter "q" to leave or any other key to continue... '
+        read -r q
+        [ q = "$q" ] && exit 0
+    fi
+}
+
 ##
 # The function parses arguments in such way that a user will be notified
 # about all wrong options. Also the behavior should be consistent. If there
 # is one or more -h switches - print help once, even if there are more options
-# like in "./simon -xxyzhh". Note that in the command example illegal option
-# "-x" appeared twice, but the warning should be outputted only once. If
+# like in "./simon -xxyzhh". Note that in the example command illegal option
+# "-x" appeared twice, but the warning should be outputted only once. If a
 # user do not want to see any regular messages in non-interactive mode
 # (no "-v"), no messages should be printed, even errors if "-q" was specified.
 args() {
-    check_term
-    local a c t h v q d opts
-    while getopts ':ai:s:cthvqd' opts; do
+    args_check_term
+    local a c p h v q d opts earg
+    while getopts ':ai:s:cphvqd' opts; do
         case "$opts" in
             a ) a=1;;
             i ) IMAGES_DIR="$OPTARG";;
             s ) SNAPSHOT_OLD="$OPTARG";;
             c ) c=1;;
-            t ) t=1;;
+            p ) p=1;;
             h ) h=1;;
             v ) v=1;;
             q ) q=1;;
             d ) d=1;;
             \? ) args_stash "\n${B}Unknown option: -$OPTARG$RST";;
-            : )
-                TMP="\n${R}Option $BLD-$OPTARG$RST$R requires an argument$RST"
-                args_stash "$TMP"
-                FWERR=1
+            : ) earg="$OPTARG"
         esac
     done
 
-    [ 1 = "$FTRIV" ] || [ -n "$c" ] && disable_colors || FNCOL=0
-    [ -n "$t" ] && FTRIV=1
-
-    if [ 1 = "$FWERR" ]; then
-      args_unstash
-      exit 1
-    fi
+    [ 1 = "$FSMPL" ] || [ -n "$c" ] && args_disable_colors || FNCOL=0
 
     if [ -z "$a" ]; then
         FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
-        [ -n "$h" ] && print_help
+        [ -n "$h" ] && args_print_help
+
+        [ -n "$earg" ] && args_earg "$earg"
+
+        [ -n "$p" ] && FSMPL=1;
         [ -n "$v" ] && args_stash "\n${B}WARN: -v has no impact$RST"
         [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
         [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
 
-        # notify about warnings if VBUF not empty
-        if [ -n "$VBUF" ]; then
-            args_unstash
-            printf '\nEnter "q" to leave or any other key to continue... '
-            read -r q
-            [ q = "$q" ] && exit 0
-        fi
+        args_set_paths
+        args_prompt_on_warnings
+        args_set_traps
     else
-        FAUTO=1; FTRIV=1;
+        FAUTO=1; FSMPL=1;
         [ -n "$v" ] && FVERB=1 || FVERB=0
         [ -n "$q" ] && FNERR=1 || FNERR=0
         [ -n "$d" ] && FDIFF=1 || FDIFF=0
@@ -397,28 +417,23 @@ args() {
             TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
             TMP="$TMP no sense.\n      Proceeding with the defaults "
             TMP="$TMP (no -v and -q)...$RST"
-            printf '%b\n' "$TMP" >&2
             FVERB=0; FNERR=0
+            args_err "$TMP"
         fi
-        if [ 1 = "$FDIFF" ] && [ 0 = "$FVERB" ] && [ 0 = "$FNERR" ]; then
+        if [ 1 = "$FDIFF" ] && [ 0 = "$FVERB" ]; then
             TMP="$R${BLD}ERR!$RST$R: -d option has no sense without -v."
             TMP="$TMP\n      Ignoring -d and proceeding...$RST"
-            printf '%b\n' "$TMP" >&2
             FVERB=0; FNERR=0
+            args_err "$TMP"
         fi
+        [ -n "$earg" ] && args_earg "$earg"
         args_unstash
+
         [ -n "$h" ] && args_out \
             "${B}WARN: $BLD-h$RST$B has no effect in non-interactive mode$RST"
-        [ -n "$t" ] && args_out \
-            "${B}WARN: $BLD-t$RST$B has no effect in non-interactive mode$RST"
-    fi
-
-    args_set_paths
-
-    if [ 0 = "$FTRIV" ]; then
-        tput smcup
-        trap redraw WINCH
-        trap cleanup EXIT
+        [ -n "$p" ] && args_out \
+            "${B}WARN: $BLD-p$RST$B has no effect in non-interactive mode$RST"
+        args_set_paths
     fi
 }
 
@@ -574,7 +589,7 @@ ask_overwrite() {
                 break;;
             [Dd]* )
                 not_t1a0 && upd_status ' <> ' "$yn"
-                if [ 0 = "$FTRIV" ]; then
+                if [ 0 = "$FSMPL" ]; then
                     print_diff | less -R
                 else
                     print_diff
@@ -622,11 +637,11 @@ fetch_and_download() {
                         file_downloader "$SITE$link" "$IMAGES_DIR/$fname"
                         break;;
                     [Nn]* )
-                        [ 0 = "$FTRIV" ] && upd_status ' -- ' "$yn"
+                        [ 0 = "$FSMPL" ] && upd_status ' -- ' "$yn"
                         put_descr 'Skipping...'
                         break;;
                     * )
-                        [ 0 = "$FTRIV" ] && upd_status ' :: ' "$yn"
+                        [ 0 = "$FSMPL" ] && upd_status ' :: ' "$yn"
                         put_descr 'Please answer yes or no'
                 esac
             done

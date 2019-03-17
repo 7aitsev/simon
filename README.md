@@ -104,7 +104,7 @@ alias simon='simon -i <your_dir> -s <your_path>'
 Refer to your shell documentation to find out where the alias should be
 placed in order to use it not only for a current shell session.
 
-Use `-t` option if the pretty-printing is not desired, or the feature causes
+Use `-p` option if the pretty-printing is not desired, or the feature causes
 problems.
 
 It may be helpful to use `-h` option to show a short summary of all the
