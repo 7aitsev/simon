@@ -1,31 +1,46 @@
 #!/bin/sh
-# shellcheck disable=SC2039
+# shellcheck disable=SC2039,SC2181
 
 ###############################################################################
 # Global vals and vars
 ###############################################################################
 SITE='http://simonstalenhag.se/'
+
+# Holds a processed content of the site's home page
 SNAPSHOT_NEW=''
+
+# Points to a desired folder for images to be download
+# (default is pwd, i.e. the current directory: "./")
 IMAGES_DIR=''
+# A path to the file that stores a snapshot of the site
 SNAPSHOT_OLD=''
+# Use this if a user doesn't specify a path (see args_gen_cache_path())
 SNAPSHOT_OLD_DEF=''
+# Initialize the variable from XDG Base Directory Specification
 XDG_CACHE_HOME="${XDG_CACHE_HOME:="$HOME/.cache"}"
+
+# Full paths for the required utilities
 SED=''
+DIFF=''
 DOWNLOADER=''
+# Options for the above utilities
 WGET_OPTS='--no-config --quiet'
 CURL_OPTS='--disable --silent --fail'
-DIFF_OPTS='--color=always'
-if [ -n "$TERM" ]; then
-    RST="$(tput sgr0)"
-    R="$(tput setaf 1)"
-    G="$(tput setaf 2)"
-    B="$(tput setaf 4)"
-    BLD="$(tput bold)"
-fi
-STATUS_LAST_MSG=''
-FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''
-TMP=''
+DIFF_OPTS='--color=always' # it's empty when FNCOL=1
+
+# Text formatting: reset, red, green, blue, bold
+RST=''; R=''; G=''; B=''; BLD=''
+
+# Flags
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''
+
+# A text buffer needed to pretty-printing
 VBUF=''
+# Utility variable for pretty-printing
+STATUS_LAST_MSG=''
+
+# Utility variable
+TMP=''
 
 ###############################################################################
 # Helper functions for pretty-printing
@@ -56,6 +71,15 @@ rmcup
 END
 }
 
+args_set_traps()
+{
+    if [ 0 = "$FSMPL" ]; then
+        tput smcup
+        trap redraw WINCH
+        trap cleanup EXIT
+    fi
+}
+
 vbuf_append() {
     VBUF="$VBUF$(printf -- '%s' "$1")"
     redraw
@@ -64,133 +88,6 @@ vbuf_append() {
 vbuf_replace_last() {
     VBUF="$(printf -- '%s' "$VBUF" | "$SED" -e '$ s|^.*|'"$1"'|g')"
     redraw
-}
-
-##
-# Formats a line with a status and a given message and appends
-# the line to VBUF.
-#
-# $1 - a message
-# $2 - defines the status: usually it's an empty placeholder, so if the
-#      parameter is empty, then the placeholder is filled with four spaces
-set_status() {
-    if [ 1 = "$FAUTO" ]; then
-        [ 1 = "$FVERB" ] && printf -- ':: %s ' "$1"
-        return 0
-    fi
-    local status msg
-    [ -z "$2" ] && status='    ' || status="$2"
-    msg="$(printf -- '[%s] %s' "$status" "$1")"
-    # if this isn't the first status line - prepend '\n'
-    [ -n "$STATUS_LAST_MSG" ] && msg="$(printf '\n%s' "$msg")"
-    STATUS_LAST_MSG="$(printf -- '%s' "$1")"
-
-    vbuf_append "$msg"
-}
-
-##
-# Updates the status in a line which is obtained from a VBUF
-#
-# $1 (required) - a type: one of OK, ERR!, WARN, INFO, or a custom type.
-# $2 (optional) - a string which can be appened to a message (can be empty).
-#                 the sring is needed for saving user input after a prompt.
-upd_status() {
-    if [ -z "$1" ]; then
-        put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided$RST"
-        exit 1
-    fi
-    [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
-    local msg st
-    FWERR=0
-    case "$1" in
-        OK )    st=" $BLD${G}OK$RST ";;
-        ERR\! ) st="$BLD${R}ERR!$RST"; FWERR=1;;
-        WARN )  st="$BLD${B}WARN$RST";;
-        INFO )  st="${BLD}INFO$RST";;
-        * )     st="$1"
-    esac
-    if [ 1 = "$FAUTO" ]; then
-        [ 1 = "$FVERB" ] && printf '%s\n' "$st"
-        return 0
-    fi
-    msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
-
-    vbuf_replace_last "$msg"
-}
-
-##
-# Prints $1 with indentation after a status line
-put_descr() {
-    if [ 1 = "$FAUTO" ]; then
-        if [ 1 = "$FWERR" ]; then
-            [ 0 = "$FNERR" ] && printf '%s\n' "$1" >&2
-        else
-            [ 1 = "$FVERB" ] && printf '%s\n' "$1"
-        fi
-        return 0
-    fi
-    vbuf_append "$(printf -- '\n       %s' "$1")"
-}
-
-##
-# Get length of the latest string in VBUF. Count only printable characters,
-# i.e. without special symbols for text manipulation.
-# The length is needed to put the cursor right after a prompt for user input.
-put_cursor_after_prompt() {
-    local xoffset
-    xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | tr -d "$R$G$B$RST$BLD" | wc -m)"
-    # move the cursor up on the line with a prompt
-    tput cuu1
-    # place the cursor after the prompt
-    [ 0 = "$FNCOL" ] && xoffset="$((xoffset+2))"
-    tput cuf $xoffset
-}
-
-##
-# Set a prompt for user input. Can be updated simply with upd_status
-set_prompt() {
-    set_status "$1" ' :: '
-    put_cursor_after_prompt
-}
-
-print_diff() {
-    printf -- '%s\n' "$SNAPSHOT_NEW" \
-       | eval diff --unified "$DIFF_OPTS" -- "$SNAPSHOT_OLD" -
-}
-
-##
-# Resets global variables related to text manipulation and removes those
-# special characters from VBUF if it's not empty.
-disable_colors() {
-    DIFF_OPTS=''; FNCOL=1
-    if [ -n "$VBUF" ]; then
-        VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
-    fi
-    RST=''; R=''; G=''; B=''; BLD=''
-}
-
-###############################################################################
-# Functions for parsing options and arguments
-###############################################################################
-print_help() {
-    printf '%s\n' \
-"USAGE:
-  simon [OPTIONS]
-
-OPTIONS:
-  -a      - enter non-interactive mode
-  -i dir  - define a directory to store images
-  -s path - set a path to store and use an old snapshot
-  -c      - disable colors
-  -h      - show the help and exit (interactive mode only)
-  -v      - verbose output (non-interactive mode only)
-  -q      - disable errors (non-interactive mode only)
-  -d      - print diff (only with -v in non-interactive mode)
-"
-    # a regular error code is 1, but that case should be distinguished
-    # from both a normal execution and a faulty one
-    exit 3
 }
 
 ##
@@ -223,12 +120,188 @@ args_err() {
 }
 
 ##
+# Formats a line with a status and a given message and appends
+# the line to VBUF.
+#
+# $1 - a message
+# $2 - defines the status: usually it's an empty placeholder, so if the
+#      parameter is empty, then the placeholder is filled with four spaces
+set_status() {
+    if [ 1 = "$FSMPL" ]; then
+        [ 1 = "$FVERB" ] && printf -- ':: %s' "$1"
+        return 0
+    fi
+    local status msg
+    [ -z "$2" ] && status='    ' || status="$2"
+    msg="$(printf -- '[%s] %s' "$status" "$1")"
+    # if this isn't the first status line - prepend '\n'
+    [ -n "$STATUS_LAST_MSG" ] && msg="$(printf '\n%s' "$msg")"
+    STATUS_LAST_MSG="$(printf -- '%s' "$1")"
+
+    vbuf_append "$msg"
+}
+
+##
+# Updates the status in a line which is obtained from a VBUF
+#
+# $1 (required) - a type: one of OK, ERR!, WARN, INFO, or a custom type.
+# $2 (optional) - a string which can be appended to a message (can be empty).
+#                 the string is needed for saving user input after a prompt.
+upd_status() {
+    if [ -z "$1" ]; then
+        put_descr "${R}@upd_status: ${BLD}type$RST$R wasn't provided$RST"
+        exit 1
+    fi
+    [ 0 = "$FAUTO" ] && [ -n "$2" ] && STATUS_LAST_MSG="$STATUS_LAST_MSG$2"
+    local msg st
+    FWERR=0
+    case "$1" in
+        OK )    st=" $BLD${G}OK$RST ";;
+        ERR\! ) st="$BLD${R}ERR!$RST"; FWERR=1;;
+        WARN )  st="$BLD${B}WARN$RST";;
+        INFO )  st="${BLD}INFO$RST";;
+        * )     st="$1"
+    esac
+    if [ 1 = "$FSMPL" ]; then
+        [ 1 = "$FVERB" ] && printf ' %s\n' "$st"
+        return 0
+    fi
+    msg="$(printf -- '[%s] %s' "$st" "$STATUS_LAST_MSG")"
+
+    vbuf_replace_last "$msg"
+}
+
+##
+# Prints $1 with indentation after a status line
+put_descr() {
+    if [ 1 = "$FSMPL" ]; then
+        if [ 1 = "$FWERR" ]; then
+            [ 0 = "$FNERR" ] && printf '%s\n' "$1" >&2
+        else
+            [ 1 = "$FVERB" ] && printf '%s\n' "$1"
+        fi
+        return 0
+    fi
+    vbuf_append "$(printf -- '\n       %s' "$1")"
+}
+
+##
+# Get length of the latest string in VBUF. Count only printable characters,
+# i.e. without special symbols for text manipulation.
+# The length is needed to put the cursor right after a prompt for user input.
+put_cursor_after_prompt() {
+    local xoffset
+    xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
+        | tr -d "$R$G$B$RST$BLD" | wc -m)"
+    # move the cursor up on the line with a prompt
+    tput cuu1
+    # place the cursor after the prompt
+    [ 0 = "$FNCOL" ] && xoffset="$((xoffset+2))"
+    tput cuf $xoffset
+}
+
+##
+# Set a prompt for user input. Can be updated simply with upd_status
+set_prompt() {
+    set_status "$1" ' :: '
+    [ 0 = "$FSMPL" ] && put_cursor_after_prompt
+}
+
+print_diff() {
+    [ 1 = "$FSMPL" ] && \
+        printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
+
+    printf -- '%s\n' "$SNAPSHOT_NEW" \
+       | eval "$DIFF --unified $DIFF_OPTS -- \"$SNAPSHOT_OLD\" -"
+
+    [ 1 = "$FSMPL" ] && \
+        printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
+
+}
+
+##
+# The function tries to figure out whether a terminal has required
+# capabilities support by testing only "color" feature. It should be safe
+# to assume that if the terminal doesn't have such capability then all the
+# other are also missing. If this is the case just switch to simplified output
+# mode (FSMPL), where no advanced capabilities are required.
+args_check_term() {
+    FSMPL=1
+    if [ -z "$TERM" ]; then
+        args_stash '\nEnvironment variable TERM is empty'
+    else
+        local colors
+        colors="$(tput colors 2>/dev/null)"
+        if [ 0 != $? ]; then
+            args_stash "\nTerminal \"$TERM\" isn't supported"
+        elif [ -1 != "$colors" ]; then
+            RST=$(tput sgr0)
+            R=$(tput setaf 1)
+            G=$(tput setaf 2)
+            B=$(tput setaf 4)
+            BLD=$(tput bold)
+            FSMPL=0
+            return 0
+        else
+            args_stash "\nTerminal \"$TERM\" lacks color support"
+            # assume also the terminal lacks other capabilities
+        fi
+    fi
+    args_stash ': pretty-printing is disabled'
+}
+
+##
+# Resets global variables related to text manipulation and removes those
+# special characters from VBUF if it's not empty.
+args_disable_colors() {
+    DIFF_OPTS=''; FNCOL=1
+    if [ -n "$VBUF" ]; then
+        VBUF="$(printf '%b\n' "$VBUF" | tr -d "$RST$R$G$B$BLD")"
+    fi
+    RST=''; R=''; G=''; B=''; BLD=''
+}
+
+##
+# The function is used in conjuction with upd_status to exlude an execution
+# of the latter function after prompts
+# FSMPL | FAUTO | Update status
+# 0     | 0     | 1
+# 0     | 1     | Illegal
+# 1     | 0     | 0
+# 1     | 1     | 1
+not_t1a0() {
+    [ 1 = "$FSMPL" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
+}
+
+###############################################################################
+# Functions for parsing options and arguments
+###############################################################################
+args_print_help() {
+    printf '%s\n' \
+"USAGE:
+  simon [OPTIONS]
+
+OPTIONS:
+  -i dir  - define a directory to store images
+  -s path - set a path to store and use an old snapshot
+  -c      - disable colors
+  -t      - turn off pretty-printing (interactive mode only)
+  -h      - show the help and exit (interactive mode only)
+  -a      - enter non-interactive mode
+  -v      - verbose output (non-interactive mode only)
+  -q      - disable errors (non-interactive mode only)
+  -d      - print diff (only with -v in non-interactive mode)
+"
+    exit 0
+}
+
+##
 # Checks if XDG_CACHE_HOME/simon directory exists. If not, the function
 # tries to create the directory path. Sets SNAPSHOT_OLD_DEF.
 args_gen_cache_path() {
     SNAPSHOT_OLD_DEF="$XDG_CACHE_HOME/simon"
     if ! [ -d "$SNAPSHOT_OLD_DEF" ]; then
-        if ! mkdir -p "$SNAPSHOT_OLD_DEF" 2>/dev/null; then
+        if ! mkdir -p -- "$SNAPSHOT_OLD_DEF" 2>/dev/null; then
             args_err "${R}Cannot create directory: $BLD$SNAPSHOT_OLD_DEF$RST"
             exit 1
         fi
@@ -257,8 +330,8 @@ args_set_paths() {
             ;;
         * )
             # check if a path for a snapshot contains an existing directory
-            if ! [ -d "$(dirname "$SNAPSHOT_OLD")" ]; then
-                TMP="${R}No such directory: $(dirname "$SNAPSHOT_OLD")$RST"
+            if ! [ -d "$(dirname -- "$SNAPSHOT_OLD")" ]; then
+                TMP="${R}No such directory: $(dirname -- "$SNAPSHOT_OLD")$RST"
                 args_err "$TMP"
                 exit 1
             fi
@@ -272,84 +345,95 @@ args_set_paths() {
     esac
 }
 
+args_earg()
+{
+    printf '%sOption %s-%s%s requires an argument%s\n' \
+      "$R" "$BLD" "$1" "$RST$R" "$RST" >&2
+    exit 1
+}
+
 ##
-# The function parses arguments in such way that a user will be notified
-# about all wrong options. Also the behavior should be consistent. If there
-# is one or more -h switches - print help once, even if there are more options
-# like in "./simon -xxyzhh". Note that in the command example illegal option
-# "-x" appeared twice, but the warning should be outputted only once. If
-# user do not want to see any regular messages in non-interactive mode
-# (no "-v"), no messages should be printed, even errors if "-q" was specified.
-args() {
-    local a c h v q d opts
-    while getopts ':ai:s:chvqd' opts; do
-        case "$opts" in
-            a ) a=1;;
-            i ) IMAGES_DIR="$OPTARG";;
-            s ) SNAPSHOT_OLD="$OPTARG";;
-            c ) c=1;;
-            h ) h=1;;
-            v ) v=1;;
-            q ) q=1;;
-            d ) d=1;;
-            \? ) args_stash "\n${B}Unknown option: -$OPTARG$RST";;
-            : )
-                TMP="\n${R}Option $BLD-$OPTARG$RST$R requires an argument$RST"
-                args_stash "$TMP"
-                FWERR=1
-        esac
-    done
-
-    [ -n "$c" ] && disable_colors || FNCOL=0
-
-    if [ 1 = "$FWERR" ]; then
-      args_unstash
-      exit 1
-    fi
-
-    if [ -z "$a" ]; then
-        FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
-        [ -n "$h" ] && print_help
-        [ -n "$v" ] && args_stash "\n${B}WARN: -v has no impact$RST"
-        [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
-        [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
-    else
-        FAUTO=1
-        [ -n "$v" ] && FVERB=1 || FVERB=0
-        [ -n "$q" ] && FNERR=1 || FNERR=0
-        [ -n "$d" ] && FDIFF=1 || FDIFF=0
-        if [ 1 = "$FVERB" ] && [ 1 = "$FNERR" ]; then
-            TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
-            TMP="$TMP no sense.\n      Proceeding with the defaults "
-            TMP="$TMP (no -v and -q)...$RST"
-            printf '%b\n' "$TMP" >&2
-            FVERB=0; FNERR=0
-        fi
-        if [ 1 = "$FDIFF" ] && [ 0 = "$FVERB" ] && [ 0 = "$FNERR" ]; then
-            TMP="$R${BLD}ERR!$RST$R: -d option has no sense without -v."
-            TMP="$TMP\n      Ignoring -d and proceeding...$RST"
-            printf '%b\n' "$TMP" >&2
-            FVERB=0; FNERR=0
-        fi
-        args_unstash
-        [ -n "$h" ] && \
-            args_out "${B}WARN: -h has no effect in non-interactive mode$RST"
-    fi
-
-    args_set_paths
-
-    # notify about warnings if VBUF not empty
-    if [ 0 = "$FAUTO" ] && [ -n "$VBUF" ]; then
+# Notify about warnings if VBUF is not empty and wait for user input
+args_prompt_on_warnings()
+{
+    if [ -n "$VBUF" ]; then
         args_unstash
         printf '\nEnter "q" to leave or any other key to continue... '
         read -r q
         [ q = "$q" ] && exit 0
     fi
+}
 
-    if [ 0 = "$FAUTO" ]; then
-        tput smcup
-        trap redraw WINCH
-        trap cleanup EXIT
+##
+# The function parses arguments in such way that a user will be notified
+# about all wrong options. Also the behavior should be consistent. If there
+# is one or more -h switches - print help once, even if there are more options
+# like in "./simon -xxyzhh". Note that in the example command illegal option
+# "-x" appeared twice, but the warning should be outputted only once. If a
+# user do not want to see any regular messages in non-interactive mode
+# (no "-v"), no messages should be printed, even errors if "-q" was specified.
+args() {
+    args_check_term
+    local a c p h v q d opts earg
+    while getopts ':ai:s:cphvqd' opts; do
+        case "$opts" in
+            a ) a=1;;
+            i ) IMAGES_DIR="$OPTARG";;
+            s ) SNAPSHOT_OLD="$OPTARG";;
+            c ) c=1;;
+            p ) p=1;;
+            h ) h=1;;
+            v ) v=1;;
+            q ) q=1;;
+            d ) d=1;;
+            \? ) args_stash "\n${B}Unknown option: -$OPTARG$RST";;
+            : ) earg="$OPTARG"
+        esac
+    done
+
+    [ 1 = "$FSMPL" ] || [ -n "$c" ] && args_disable_colors || FNCOL=0
+
+    if [ -z "$a" ]; then
+        FAUTO=0; FVERB=1; FNERR=0; FDIFF=0
+        [ -n "$h" ] && args_print_help
+
+        [ -n "$earg" ] && args_earg "$earg"
+
+        [ -n "$p" ] && FSMPL=1;
+        [ -n "$v" ] && args_stash "\n${B}WARN: -v has no impact$RST"
+        [ -n "$q" ] && args_stash "\n${B}WARN: -q has no impact$RST"
+        [ -n "$d" ] && args_stash "\n${B}WARN: -d has no impact$RST"
+
+        args_set_paths
+        args_prompt_on_warnings
+        args_set_traps
+    else
+        FAUTO=1; FSMPL=1;
+        [ -n "$v" ] && FVERB=1 || FVERB=0
+        [ -n "$q" ] && FNERR=1 || FNERR=0
+        [ -n "$d" ] && FDIFF=1 || FDIFF=0
+
+        if [ 1 = "$FVERB" ] && [ 1 = "$FNERR" ]; then
+            TMP="$R${BLD}ERR!$RST$R: the combination of -v and -q makes"
+            TMP="$TMP no sense.\n      Proceeding with the defaults "
+            TMP="$TMP (no -v and -q)...$RST"
+            FVERB=0; FNERR=0
+            args_err "$TMP"
+        fi
+        if [ 1 = "$FDIFF" ] && [ 0 = "$FVERB" ]; then
+            TMP="$R${BLD}ERR!$RST$R: -d option has no sense without -v."
+            TMP="$TMP\n      Ignoring -d and proceeding...$RST"
+            FVERB=0; FNERR=0
+            args_err "$TMP"
+        fi
+        [ -n "$earg" ] && args_earg "$earg"
+        args_unstash
+
+        [ -n "$h" ] && args_out \
+            "${B}WARN: $BLD-h$RST$B has no effect in non-interactive mode$RST"
+        [ -n "$p" ] && args_out \
+            "${B}WARN: $BLD-p$RST$B has no effect in non-interactive mode$RST"
+        args_set_paths
     fi
 }
 
@@ -359,14 +443,12 @@ args() {
 check_deps() {
     set_status 'Checking dependencies...'
     SED="$(command -v sed)"
-    # shellcheck disable=SC2181
     if [ 0 -ne $? ]; then
         upd_status 'ERR!'
         put_descr "${R}The script requires ${BLD}sed$RST"
         exit 1
     fi
     DIFF="$(command -v diff)"
-    # shellcheck disable=SC2181
     if [ 0 -ne $? ]; then
         upd_status 'ERR!'
         put_descr "$R${BLD}diff$RST$R is required but not found$RST"
@@ -375,7 +457,7 @@ check_deps() {
         # there is no --color option in diff ver < 3.4
         local tv cv rv
         tv='3.4'
-        cv="$(eval "$DIFF" --version | head -1 | tr -d '[:alpha:] ()')"
+        cv="$(eval "$DIFF --version" | head -1 | tr -d '[:alpha:] ()')"
         if [ "$tv" != "$cv" ]; then
             rv="$(printf '%s\n%s' "$tv" "$cv" \
                 | sort --version-sort | head -1)"
@@ -390,9 +472,8 @@ check_deps() {
         fi
     fi
     local dlder
-    for dlder in 'wget' 'curl' ; do
+    for dlder in 'wget' 'curl'; do
         DOWNLOADER="$(command -v "$dlder")"
-        # shellcheck disable=SC2181
         if [ 0 -eq $? ]; then
             [ 0 = "$FWERR" ] && upd_status 'OK'
             FWERR=0
@@ -435,7 +516,8 @@ download_page()
         exit 1
     fi
 
-    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" | "$SED" -e "$site_filter")
+    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" \
+        | eval "$SED -e \"$site_filter\"")
     upd_status 'OK'
 }
 
@@ -449,35 +531,35 @@ download_page()
 ###############################################################################
 file_downloader() {
     if [ 2 -ne $# ]; then
-        upd_status 'ERR!' 'yes'
+        not_t1a0 && upd_status 'ERR!' 'yes'
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
     local rc
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O $2 -- $1"
+            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\""
             rc=$?
             ;;
         *curl )
-            eval "$DOWNLOADER $CURL_OPTS -o $2 -- $1"
+            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\""
             rc=$?
             ;;
         * )
-            upd_status 'ERR!' 'yes'
+            not_t1a0 && upd_status 'ERR!' 'yes'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
     # clean up in case of downloading failure
     if [ 0 -eq $rc ]; then
-        upd_status 'OK' 'yes'
+        not_t1a0 && upd_status 'OK' 'yes'
     else
-        upd_status 'ERR!' 'yes'
-        TMP="${R}Failed to download $BLD$(basename "$1")$RST$R:"
+        not_t1a0 && upd_status 'ERR!' 'yes'
+        TMP="${R}Failed to download $BLD$(basename -- "$1")$RST$R:"
         TMP="$TMP ${BLD}$(basename "$DOWNLOADER")$RST$R"
         TMP="$TMP returns code $BLD$rc$RST"
         put_descr "$TMP"
-        rm -f "$2"
+        rm -f -- "$2"
     fi
 }
 
@@ -491,30 +573,30 @@ ask_overwrite() {
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
             read -r yn
         else
-            if [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ]; then
-                printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
-                print_diff
-                printf '%s----- END DIFF BLOCK -----%s\n' "$B" "$RST"
-            fi
-            set_status 'Overriding the old snapshot...'
+            [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ] && print_diff
+            set_status 'Overwriting the old snapshot...'
             yn='y'
         fi
         case "$yn" in
             [Yy]* )
                 printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
-                upd_status 'WARN' "$yn"
-                put_descr "${B}Snapshot overwritten$RST"
+                not_t1a0 && upd_status 'WARN' "$yn"
+                put_descr "${B}Snapshot is overwritten$RST"
                 break;;
             [Nn]* )
-                upd_status 'INFO' "$yn"
-                put_descr "${BLD}Snapshot untouched$RST"
+                not_t1a0 && upd_status 'INFO' "$yn"
+                put_descr "${BLD}Snapshot is untouched$RST"
                 break;;
             [Dd]* )
-                upd_status ' <> ' "$yn"
-                print_diff | less -R
+                not_t1a0 && upd_status ' <> ' "$yn"
+                if [ 0 = "$FSMPL" ]; then
+                    print_diff | less -R
+                else
+                    print_diff
+                fi
                 ;;
             * )
-                upd_status ' :: ' "$yn"
+                not_t1a0 && upd_status ' :: ' "$yn"
                 put_descr 'Please answer yes or no'
         esac
     done
@@ -529,18 +611,18 @@ fetch_and_download() {
     local links
     set_status 'Preparing a list of images...'
     links=$(printf -- '%s' "$1" \
-        | "$SED" -n '/^>/p' | cut -d '"' -f 2 \
-        | "$SED" -n '/\.[jJ][pP][eE]\?[gG]/p' | sort -u)
+        | eval "$SED -n '/^>/p'" | cut -d '"' -f 2 \
+        | eval "$SED -n '/\.[jJ][pP][eE]\?[gG]/p'" | sort -u)
     if [ -n "$links" ]; then
         local fname link yn xoffset
         upd_status 'OK'
         # show a list of fetched link(s)
         for link in $links; do
-            put_descr "$B$(basename "$link")$RST"
+            put_descr "$B$(basename -- "$link")$RST"
         done
         # loop through the links again to download them
         for link in $links; do
-            fname="$(basename "$link")"
+            fname="$(basename -- "$link")"
             # ask if a user wishes to save the file from the fetched link
             while true; do
                 if [ 1 = "$FAUTO" ]; then
@@ -555,11 +637,11 @@ fetch_and_download() {
                         file_downloader "$SITE$link" "$IMAGES_DIR/$fname"
                         break;;
                     [Nn]* )
-                        upd_status ' -- ' "$yn"
+                        [ 0 = "$FSMPL" ] && upd_status ' -- ' "$yn"
                         put_descr 'Skipping...'
                         break;;
                     * )
-                        upd_status ' :: ' "$yn"
+                        [ 0 = "$FSMPL" ] && upd_status ' :: ' "$yn"
                         put_descr 'Please answer yes or no'
                 esac
             done
@@ -577,7 +659,8 @@ fetch_and_download() {
 find_diffs() {
     local diffs
     set_status 'Comparing the snapshots...'
-    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" | diff -- "$SNAPSHOT_OLD" -)
+    diffs=$(printf -- '%s' "$SNAPSHOT_NEW" \
+        | eval "$DIFF -- \"$SNAPSHOT_OLD\" -")
     if [ -n "$diffs" ]; then
         upd_status 'WARN'
         put_descr 'Snapshots are different'
