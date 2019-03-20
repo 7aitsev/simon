@@ -192,7 +192,7 @@ put_descr() {
 put_cursor_after_prompt() {
     local xoffset
     xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | tr -d "$R$G$B$RST$BLD" | wc -m)"
+        | tr -d "$B$BLD$RST" | wc -m)"
     # move the cursor up on the line with a prompt
     tput cuu1
     # place the cursor after the prompt
