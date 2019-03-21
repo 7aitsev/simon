@@ -32,7 +32,7 @@ DIFF_OPTS='--color=always' # it's empty when FNCOL=1
 RST=''; R=''; G=''; B=''; BLD=''
 
 # Flags
-FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''; FPUTC=''
 
 # A text buffer needed to pretty-printing
 VBUF=''
@@ -59,6 +59,7 @@ END
     else
         printf -- '%s\n' "$(printf -- '%s' "$VBUF" | tail -"$lc")"
     fi
+    [ -n "$FPUTC" ] && put_cursor_after_prompt
 }
 
 cleanup() {
@@ -69,6 +70,7 @@ cup 0 0
 ed
 rmcup
 END
+    rm -f /tmp/simon_answer*
 }
 
 args_set_traps()
@@ -192,12 +194,10 @@ put_descr() {
 put_cursor_after_prompt() {
     local xoffset
     xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | tr -d "$B$BLD$RST" | wc -m)"
+        | eval '$SED -E "s/\x1B(\[[0-9;]*[JKmsu]|\(B)//g"' | wc -c)"
     # move the cursor up on the line with a prompt
     tput cuu1
-    # place the cursor after the prompt
-    [ 0 = "$FNCOL" ] && xoffset="$((xoffset+2))"
-    tput cuf $xoffset
+    tput cuf "$xoffset"
 }
 
 ##
@@ -271,6 +271,35 @@ args_disable_colors() {
 # 1     | 1     | 1
 not_t1a0() {
     [ 1 = "$FSMPL" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
+}
+
+
+read_from_term()
+{
+    printf '_skip_' >"$tmp_file"
+    read -r yn <"$2"
+    printf -- '%s' "${yn}" >"$1"
+}
+
+get_answer()
+{
+    local tmp_file rc dev_tty
+    tmp_file=/tmp/simon_answer$(date +%I%A%d%B)
+    dev_tty=$(tty)
+    FPUTC=1
+
+    read_from_term "$tmp_file" "$dev_tty" &
+    while true; do
+        sleep 0.1
+        yn=$(cat "$tmp_file" 2>/dev/null)
+        case "$yn" in
+            _skip_ ) ;;
+            * ) TMP="$yn"; break
+        esac
+    done
+
+    rm /tmp/simon_answer*
+    FPUTC=''
 }
 
 ###############################################################################
@@ -571,7 +600,7 @@ ask_overwrite() {
     while true; do
         if [ 0 = "$FAUTO" ]; then
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
-            read -r yn
+            get_answer; yn="$TMP"
         else
             [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ] && print_diff
             set_status 'Overwriting the old snapshot...'
@@ -630,7 +659,7 @@ fetch_and_download() {
                     yn='y'
                 else
                     set_prompt "Save $B$fname$RST? [y/n] "
-                    read -r yn
+                    get_answer; yn="$TMP"
                 fi
                 case "$yn" in
                     [Yy]* )
