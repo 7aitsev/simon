@@ -273,7 +273,12 @@ not_t1a0() {
     [ 1 = "$FSMPL" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
 }
 
-
+##
+# The function has to be executed in background to read user input from
+# $2. The input is stores in file $1.
+#
+# $1 - filename to store the input (TODO use proper IPC, such as signals)
+# $2 - terminal device (e.g., /dev/tty1, /dev/pts/3 and so on)
 read_from_term()
 {
     printf '_skip_' >"$tmp_file"
@@ -281,6 +286,10 @@ read_from_term()
     printf -- '%s' "${yn}" >"$1"
 }
 
+##
+# Executes read_from_term() in background, goes to sleep and polls user
+# input from a file. The function modifies TMP variable to "return" the
+# result.
 get_answer()
 {
     local tmp_file rc dev_tty
