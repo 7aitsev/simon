@@ -311,6 +311,22 @@ get_answer()
     FPUTC=''
 }
 
+##
+# Waits for a process with PID=$1. Prints spinner while the process is
+# running. Returns exit code of the process.
+#
+# $1 - PID of a process
+async_wait()
+{
+    while kill -0 "$1"; do
+        for s in / - \\ \|; do
+            printf '\r%s' "$s";
+            sleep 0.1;
+        done
+    done
+    wait "$1"
+    return $?
+}
 ###############################################################################
 # Functions for parsing options and arguments
 ###############################################################################
@@ -573,21 +589,25 @@ file_downloader() {
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
-    local rc
+    local rc dl_pid
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\""
-            rc=$?
+            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\"" &
+            dl_pid=$!
             ;;
         *curl )
-            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\""
-            rc=$?
+            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\"" &
+            dl_pid=$!
             ;;
         * )
             not_t1a0 && upd_status 'ERR!' 'yes'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
+
+    async_wait "$dl_pid"
+    rc="$?"
+
     # clean up in case of downloading failure
     if [ 0 -eq $rc ]; then
         not_t1a0 && upd_status 'OK' 'yes'
