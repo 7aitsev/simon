@@ -35,12 +35,13 @@ cd simon-1.0.0
 
 ### Prerequisites
 
-The script should run fine on a GNU/Linux distributive in any POSIX®-compliant
-shells like BASH, Zsh or DASH. Either `curl` or `wget` required to be
-installed as well as `sed`. The script additionally requires `diff` utility
-(versions 3.4 or later are recommended). If you are not sure whether or not
-these utilities are installed, the script will generate descriptive messages
-about which of the programs you missed.
+The script should run fine on a GNU/Linux distributive in any POSIX®
+compatible shells like BASH, Zsh or DASH, although the script itself is'nt
+entirely POSIX®-compliant. Either `curl` or `wget` required to be installed
+as well as `sed`. The script additionally requires `diff` utility (versions
+3.4 or later are recommended). If you are not sure whether or not these
+utilities are installed, the script will generate descriptive messages about
+which of the programs you missed.
 
 ### Installing
 
