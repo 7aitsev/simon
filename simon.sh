@@ -63,14 +63,16 @@ END
 }
 
 cleanup() {
-    printf 'Enter any key to continue...'
-    read -r TMP
-    tput -S <<END
+    if [ 0 = "$FSMPL" ]; then
+        printf 'Enter any key to quit...'
+        read -r TMP
+        tput -S <<END
 cup 0 0
 ed
 rmcup
 END
-    rm -f /tmp/simon_answer*
+    fi
+    rm -f /tmp/simon_answer* /tmp/simon_snapshot*
 }
 
 args_set_traps()
@@ -78,8 +80,8 @@ args_set_traps()
     if [ 0 = "$FSMPL" ]; then
         tput smcup
         trap redraw WINCH
-        trap cleanup EXIT
     fi
+    trap cleanup EXIT
 }
 
 vbuf_append() {
@@ -293,7 +295,7 @@ read_from_term()
 get_answer()
 {
     local tmp_file rc dev_tty
-    tmp_file=/tmp/simon_answer$(date +%I%A%d%B)
+    tmp_file=/tmp/simon_answer$(date +%m%d%H%M)
     dev_tty=$(tty)
     FPUTC=1
 
@@ -318,12 +320,14 @@ get_answer()
 # $1 - PID of a process
 async_wait()
 {
-    while kill -0 "$1"; do
-        for s in / - \\ \|; do
-            printf '\r%s' "$s";
-            sleep 0.1;
+    if [ 1 != "$FAUTO" ]; then
+        while kill -0 "$1" 2>/dev/null; do
+            for s in / - \\ \|; do
+                printf '%s\b' "$s";
+                sleep 0.1;
+            done
         done
-    done
+    fi
     wait "$1"
     return $?
 }
@@ -460,7 +464,6 @@ args() {
 
         args_set_paths
         args_prompt_on_warnings
-        args_set_traps
     else
         FAUTO=1; FSMPL=1;
         [ -n "$v" ] && FVERB=1 || FVERB=0
@@ -489,6 +492,7 @@ args() {
             "${B}WARN: $BLD-p$RST$B has no effect in non-interactive mode$RST"
         args_set_paths
     fi
+    args_set_traps
 }
 
 ###############################################################################
@@ -544,23 +548,27 @@ check_deps() {
 ###############################################################################
 download_page()
 {
-    local site_filter snapshot rc
+    local site_filter rc sfile dl_pid
     site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
+    sfile=/tmp/simon_snapshot$(date +%m%d%H%M)
     set_status 'Getting a new snapshot...'
     case "$DOWNLOADER" in
         *wget )
-            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE")
-            rc=$?
+            eval "$DOWNLOADER $WGET_OPTS -O $sfile -- $SITE" &
+            dl_pid=$!
             ;;
         *curl )
-            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE")
-            rc=$?
+            eval "$DOWNLOADER $CURL_OPTS -o $sfile -- $SITE" &
+            dl_pid=$!
             ;;
         * )
             upd_status 'ERR!'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
+
+    async_wait "$dl_pid"
+    rc=$?
 
     if [ 0 -ne "$rc" ]; then
         upd_status 'ERR!'
@@ -570,8 +578,7 @@ download_page()
         exit 1
     fi
 
-    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" \
-        | eval "$SED -e \"$site_filter\"")
+    SNAPSHOT_NEW=$(eval "$SED -e \"$site_filter\" <$sfile")
     upd_status 'OK'
 }
 
@@ -606,7 +613,7 @@ file_downloader() {
     esac
 
     async_wait "$dl_pid"
-    rc="$?"
+    rc=$?
 
     # clean up in case of downloading failure
     if [ 0 -eq $rc ]; then
