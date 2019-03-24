@@ -24,8 +24,9 @@ SED=''
 DIFF=''
 DOWNLOADER=''
 # Options for the above utilities
-WGET_OPTS='--no-config --quiet'
-CURL_OPTS='--disable --silent --fail'
+USER_AGENT='"simon/2.0b (+https://github.com/7aitsev/simon)"'
+WGET_OPTS='--no-config --quiet --user-agent='"$USER_AGENT"
+CURL_OPTS='--disable --silent --fail --user-agent '"$USER_AGENT"
 DIFF_OPTS='--color=always' # it's empty when FNCOL=1
 
 # Text formatting: reset, red, green, blue, bold
