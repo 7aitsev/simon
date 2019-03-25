@@ -197,7 +197,7 @@ put_descr() {
 put_cursor_after_prompt() {
     local xoffset
     xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | eval '$SED -E "s/\x1B(\[[0-9;]*[JKmsu]|\(B)//g"' | wc -c)"
+        | eval '$SED -E "s/\x1B(\[[0-9;]*[JKmsu]|\(B)//g"' | wc -m)"
     # move the cursor up on the line with a prompt
     tput cuu1
     tput cuf "$xoffset"
