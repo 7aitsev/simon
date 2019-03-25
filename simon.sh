@@ -200,6 +200,7 @@ put_cursor_after_prompt() {
         | eval '$SED -E "s/\x1B(\[[0-9;]*[JKmsu]|\(B)//g"' | wc -m)"
     # move the cursor up on the line with a prompt
     tput cuu1
+    # place the cursor after the prompt
     tput cuf "$xoffset"
 }
 
