@@ -296,22 +296,21 @@ read_from_term()
 # result.
 get_answer()
 {
+    FPUTC=1
     local tmp_file rc dev_tty
     tmp_file=/tmp/simon_answer$(date +%m%d%H%M)
     dev_tty=$(tty)
-    FPUTC=1
 
     read_from_term "$tmp_file" "$dev_tty" &
     while true; do
         sleep 0.1
-        yn=$(cat "$tmp_file" 2>/dev/null)
+        [ -f "$tmp_file" ] && yn=$(cat "$tmp_file") || yn='_skip_'
         case "$yn" in
             _skip_ ) ;;
             * ) TMP="$yn"; break
         esac
     done
 
-    rm /tmp/simon_answer*
     FPUTC=''
 }
 
