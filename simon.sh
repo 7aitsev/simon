@@ -344,7 +344,7 @@ OPTIONS:
   -i dir  - define a directory to store images
   -s path - set a path to store and use an old snapshot
   -c      - disable colors
-  -t      - turn off pretty-printing (interactive mode only)
+  -p      - turn off pretty-printing (interactive mode only)
   -h      - show the help and exit (interactive mode only)
   -a      - enter non-interactive mode
   -v      - verbose output (non-interactive mode only)
