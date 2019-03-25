@@ -24,15 +24,16 @@ SED=''
 DIFF=''
 DOWNLOADER=''
 # Options for the above utilities
-WGET_OPTS='--no-config --quiet'
-CURL_OPTS='--disable --silent --fail'
+USER_AGENT='"simon/2.0b (+https://github.com/7aitsev/simon)"'
+WGET_OPTS='--no-config --quiet --user-agent='"$USER_AGENT"
+CURL_OPTS='--disable --silent --fail --user-agent '"$USER_AGENT"
 DIFF_OPTS='--color=always' # it's empty when FNCOL=1
 
 # Text formatting: reset, red, green, blue, bold
 RST=''; R=''; G=''; B=''; BLD=''
 
 # Flags
-FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''
+FWERR=0; FAUTO=''; FVERB=''; FNERR=''; FDIFF=''; FNCOL=''; FSMPL=''; FPUTC=''
 
 # A text buffer needed to pretty-printing
 VBUF=''
@@ -59,16 +60,20 @@ END
     else
         printf -- '%s\n' "$(printf -- '%s' "$VBUF" | tail -"$lc")"
     fi
+    [ -n "$FPUTC" ] && put_cursor_after_prompt
 }
 
 cleanup() {
-    printf 'Enter any key to continue...'
-    read -r TMP
-    tput -S <<END
+    if [ 0 = "$FSMPL" ]; then
+        printf 'Enter any key to quit...'
+        read -r TMP
+        tput -S <<END
 cup 0 0
 ed
 rmcup
 END
+    fi
+    rm -f /tmp/simon_answer* /tmp/simon_snapshot*
 }
 
 args_set_traps()
@@ -76,8 +81,8 @@ args_set_traps()
     if [ 0 = "$FSMPL" ]; then
         tput smcup
         trap redraw WINCH
-        trap cleanup EXIT
     fi
+    trap cleanup EXIT
 }
 
 vbuf_append() {
@@ -192,12 +197,11 @@ put_descr() {
 put_cursor_after_prompt() {
     local xoffset
     xoffset="$(printf -- '%s' "$VBUF" | tail -1 \
-        | tr -d "$B$BLD$RST" | wc -m)"
+        | eval '$SED -E "s/\x1B(\[[0-9;]*[JKmsu]|\(B)//g"' | wc -m)"
     # move the cursor up on the line with a prompt
     tput cuu1
     # place the cursor after the prompt
-    [ 0 = "$FNCOL" ] && xoffset="$((xoffset+2))"
-    tput cuf $xoffset
+    tput cuf "$xoffset"
 }
 
 ##
@@ -273,6 +277,61 @@ not_t1a0() {
     [ 1 = "$FSMPL" ] && [ 0 = "$FAUTO" ] && return 1 || return 0
 }
 
+##
+# The function has to be executed in background to read user input from
+# $2. The input is stores in file $1.
+#
+# $1 - filename to store the input (TODO use proper IPC, such as signals)
+# $2 - terminal device (e.g., /dev/tty1, /dev/pts/3 and so on)
+read_from_term()
+{
+    printf '_skip_' >"$tmp_file"
+    read -r yn <"$2"
+    printf -- '%s' "${yn}" >"$1"
+}
+
+##
+# Executes read_from_term() in the background, goes to sleep and polls user
+# input from a file. The function modifies TMP variable to "return" the
+# result.
+get_answer()
+{
+    FPUTC=1
+    local tmp_file rc dev_tty
+    tmp_file=/tmp/simon_answer$(date +%m%d%H%M)
+    dev_tty=$(tty)
+
+    read_from_term "$tmp_file" "$dev_tty" &
+    while true; do
+        sleep 0.1
+        [ -f "$tmp_file" ] && yn=$(cat "$tmp_file") || yn='_skip_'
+        case "$yn" in
+            _skip_ ) ;;
+            * ) TMP="$yn"; break
+        esac
+    done
+
+    FPUTC=''
+}
+
+##
+# Waits for a process with PID=$1. Prints spinner while the process is
+# running. Returns exit code of the process.
+#
+# $1 - PID of a process
+async_wait()
+{
+    if [ 1 != "$FAUTO" ]; then
+        while kill -0 "$1" 2>/dev/null; do
+            for s in / - \\ \|; do
+                printf '%s\b' "$s";
+                sleep 0.1;
+            done
+        done
+    fi
+    wait "$1"
+    return $?
+}
 ###############################################################################
 # Functions for parsing options and arguments
 ###############################################################################
@@ -406,7 +465,6 @@ args() {
 
         args_set_paths
         args_prompt_on_warnings
-        args_set_traps
     else
         FAUTO=1; FSMPL=1;
         [ -n "$v" ] && FVERB=1 || FVERB=0
@@ -435,6 +493,7 @@ args() {
             "${B}WARN: $BLD-p$RST$B has no effect in non-interactive mode$RST"
         args_set_paths
     fi
+    args_set_traps
 }
 
 ###############################################################################
@@ -490,23 +549,27 @@ check_deps() {
 ###############################################################################
 download_page()
 {
-    local site_filter snapshot rc
+    local site_filter rc sfile dl_pid
     site_filter='s/.$//;/^$/d;s/^[[:space:]]*//;s/[[:space:]]*$//'
+    sfile=/tmp/simon_snapshot$(date +%m%d%H%M)
     set_status 'Getting a new snapshot...'
     case "$DOWNLOADER" in
         *wget )
-            snapshot=$(eval "$DOWNLOADER $WGET_OPTS -O - -- $SITE")
-            rc=$?
+            eval "$DOWNLOADER $WGET_OPTS -O $sfile -- $SITE" &
+            dl_pid=$!
             ;;
         *curl )
-            snapshot=$(eval "$DOWNLOADER $CURL_OPTS -- $SITE")
-            rc=$?
+            eval "$DOWNLOADER $CURL_OPTS -o $sfile -- $SITE" &
+            dl_pid=$!
             ;;
         * )
             upd_status 'ERR!'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
+
+    async_wait "$dl_pid"
+    rc=$?
 
     if [ 0 -ne "$rc" ]; then
         upd_status 'ERR!'
@@ -516,8 +579,7 @@ download_page()
         exit 1
     fi
 
-    SNAPSHOT_NEW=$(printf -- '%s' "$snapshot" \
-        | eval "$SED -e \"$site_filter\"")
+    SNAPSHOT_NEW=$(eval "$SED -e \"$site_filter\" <$sfile")
     upd_status 'OK'
 }
 
@@ -535,21 +597,25 @@ file_downloader() {
         put_descr "${R}@file_downloader: missing arguments$RST"
         exit 1
     fi
-    local rc
+    local rc dl_pid
     case "$DOWNLOADER" in
         *wget )
-            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\""
-            rc=$?
+            eval "$DOWNLOADER $WGET_OPTS -O \"$2\" -- \"$1\"" &
+            dl_pid=$!
             ;;
         *curl )
-            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\""
-            rc=$?
+            eval "$DOWNLOADER $CURL_OPTS -o \"$2\" -- \"$1\"" &
+            dl_pid=$!
             ;;
         * )
             not_t1a0 && upd_status 'ERR!' 'yes'
             put_descr "${R}Unknown downloader: \"$DOWNLOADER\"$RST"
             exit 1
     esac
+
+    async_wait "$dl_pid"
+    rc=$?
+
     # clean up in case of downloading failure
     if [ 0 -eq $rc ]; then
         not_t1a0 && upd_status 'OK' 'yes'
@@ -571,7 +637,7 @@ ask_overwrite() {
     while true; do
         if [ 0 = "$FAUTO" ]; then
             set_prompt 'Overwrite the old snapshot? [y/n/diff] '
-            read -r yn
+            get_answer; yn="$TMP"
         else
             [ 1 = "$FDIFF" ] && [ 1 = "$FVERB" ] && print_diff
             set_status 'Overwriting the old snapshot...'
@@ -630,7 +696,7 @@ fetch_and_download() {
                     yn='y'
                 else
                     set_prompt "Save $B$fname$RST? [y/n] "
-                    read -r yn
+                    get_answer; yn="$TMP"
                 fi
                 case "$yn" in
                     [Yy]* )
