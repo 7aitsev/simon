@@ -291,7 +291,7 @@ read_from_term()
 }
 
 ##
-# Executes read_from_term() in background, goes to sleep and polls user
+# Executes read_from_term() in the background, goes to sleep and polls user
 # input from a file. The function modifies TMP variable to "return" the
 # result.
 get_answer()
