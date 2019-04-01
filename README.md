@@ -144,9 +144,6 @@ cron-job or systemd timer.
 Feel free to open an issue with any questions or problems related to the
 project. Any ideas or pull requests would be welcomed.
 
-Please note that **simon** is my silly project so do not have high
-expectations of all of this...
-
 ![my_project](https://user-images.githubusercontent.com/10958284/53481312-da06b200-3a74-11e9-8137-d333d534d516.jpg)
 
 ## Acknowledgments
