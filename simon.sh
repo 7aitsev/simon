@@ -744,7 +744,7 @@ main() {
     args "$@"
     check_deps
     download_page
-    # Is there simon.old file?
+
     set_status 'Looking for an old snapshot...'
     if [ -f "$SNAPSHOT_OLD" ]; then
         upd_status 'OK'
@@ -756,6 +756,7 @@ main() {
         printf -- '%s' "$SNAPSHOT_NEW" >"$SNAPSHOT_OLD"
         put_descr 'Snapshot of the site is created'
     fi
+    return 0
 }
 
 main "$@"
