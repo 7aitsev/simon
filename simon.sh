@@ -215,7 +215,7 @@ print_diff() {
     [ 1 = "$FSMPL" ] && \
         printf '%s-----BEGIN DIFF BLOCK-----%s\n' "$B" "$RST"
 
-    printf -- '%s\n' "$SNAPSHOT_NEW" \
+    printf -- '%s' "$SNAPSHOT_NEW" \
        | eval "$DIFF --unified $DIFF_OPTS -- \"$SNAPSHOT_OLD\" -"
 
     [ 1 = "$FSMPL" ] && \
