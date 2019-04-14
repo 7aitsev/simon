@@ -14,7 +14,7 @@ organize not well enough? The project is for you! It ships with
 [`simon.sh`](simon.sh) script that helps to detect any changes on a home
 page of the site and tries to download all images it's able to find.
 
-![demo](https://user-images.githubusercontent.com/10958284/53890335-ec0dc500-401f-11e9-8121-20347c3fe89b.gif)
+![demo](https://user-images.githubusercontent.com/10958284/56096494-8511e480-5ed8-11e9-9517-1345e42d5070.gif)
 
 [twitter]: https://twitter.com/simonstalenhag?lang=en
 [site]: http://simonstalenhag.se
